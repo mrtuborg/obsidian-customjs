@@ -148,14 +148,14 @@ class todoRollover {
 
         if (filteredTodos.length === 0) return;
 
-        let calloutContent = [
-            `> [!todo]- ${filteredTodos.length} Remaining(s)`,
-            ...filteredTodos
-        ].join("\n");
+        //-let calloutContent = [
+        //-    `> [!todo]- ${filteredTodos.length} Remaining(s)`,
+        //-    ...filteredTodos
+        //-].join("\n");
 
         newContent = [
             ...currentLines.slice(0, insertIndex),
-            calloutContent,
+            ...filteredTodos,
             ...currentLines.slice(insertIndex),
             '---'
         ].join("\n");
