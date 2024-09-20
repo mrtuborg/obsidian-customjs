@@ -146,12 +146,10 @@ class todoRollover {
             })
             .filter(line => line !== null) // Avoid duplicates and null values
 
-        if (filteredTodos.length === 0) return;
+        // Step 6: Stop processing if "# Notes:" line is encountered
+        const notesIndex = currentLines.findIndex(line => line.trim() === "# Notes:");
 
-        //-let calloutContent = [
-        //-    `> [!todo]- ${filteredTodos.length} Remaining(s)`,
-        //-    ...filteredTodos
-        //-].join("\n");
+        if (filteredTodos.length === 0) return;
 
         newContent = [
             ...currentLines.slice(0, insertIndex),

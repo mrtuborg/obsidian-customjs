@@ -116,7 +116,7 @@ class mentionsProcessor {
     }
 
     async processMentions(
-        dv, app, tagId, pages, append) {
+        dv, app, tagId, pages) {
 
         const mentionsPromises =
             pages.map(
@@ -216,9 +216,9 @@ class mentionsProcessor {
         });
 
         if (fileLinesToWrite.length > 0) {
-            fileLinesToWrite.push("\n---\n");
-            fileLinesToWrite.push('# Notes:\n');
+            fileLinesToWrite.push("\n---");
             if (notesSectionFound) {
+                fileLinesToWrite.push('# Notes:');
                 fileLinesToWrite.push(notesContent.join('\n'));
             }
         }
