@@ -30,6 +30,17 @@
 
 class noteBlocksParser {
 
+    async loadFile(app, filename) {
+        const abstractFilePath = app.vault.getAbstractFileByPath(filename);
+        if (!abstractFilePath) {
+            console.error("File not found: ", filename);
+            return null;
+        }
+
+        const content = await app.vault.read(abstractFilePath);
+        return content;
+    }
+
     parse(content) {
         const lines = content.split('\n');
         let currentBlock = null;
@@ -39,15 +50,9 @@ class noteBlocksParser {
         let emptyLineCount = 0;
 
         for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            //console.log(line);
+            let line = lines[i];
             if (this.isHeader(line)) { // When meet the # line
-                console.log('+---isHeader');
-                console.log(line);
-
                 const newHeaderLevel = this.getHeaderLevel(line);
-                console.log('new level:', newHeaderLevel);
-                console.log('current level:', currentHeaderLevel);
 
                 if (!currentBlock || (currentBlock && currentBlock.blockType !== 'header')) { // If the current block is not a header already
                     // Add the previously collected block before starting a new one
@@ -73,7 +78,6 @@ class noteBlocksParser {
                 if (currentBlock && currentBlock.blockType == 'header') continue; // Skip code block inside header
 
                 if (!currentBlock || (currentBlock && currentBlock.blockType != 'callout')) { // If the current block is not a callout already
-                    console.log('not inside of CalloutBlock');
                     // Add the previously collected block before starting a new one
                     if (currentBlock) {
                         this.addBlock(blocks, currentBlock);
@@ -97,7 +101,7 @@ class noteBlocksParser {
                 } else {
                     currentBlock.content.push(line); // Add to the current header block
                 }
-            } else if (this.isMention(line)) {
+            }   else if (this.isMention(line)) {
                 if (currentBlock && currentBlock.blockType == 'header') continue; // Skip code block inside header
 
                 // Add the previously collected block before starting a new one
@@ -107,8 +111,13 @@ class noteBlocksParser {
                     currentBlock = null
                 }
                 currentBlock = this.createBlock('mention', [line]); // Start a new block
-            } else if (this.isTodoLine(line)) {
+            }   else if (this.isTodoLine(line)) {
                 if (currentBlock && currentBlock.blockType == 'header') continue; // Skip code block inside header
+
+                // Remove the '>' symbol if it exists
+                if (line.trim().startsWith('>')) {
+                    line = line.trim().substring(1).trim();
+                }
 
                 if (!currentBlock || (currentBlock && currentBlock.blockType !== 'todo')) { // If the current block is not a todoLines block already
                     // Add the previously collected block before starting a new one
@@ -136,7 +145,6 @@ class noteBlocksParser {
                 emptyLineCount = 0; // Reset empty line count
             } else {
                 if (currentBlock) {
-                    console.log(currentBlock);
                     currentBlock.content.push(line); // Add to the current block
                 }
             }
@@ -148,8 +156,16 @@ class noteBlocksParser {
     }
 
     isCallout(line) {
-        // Implement logic to check if the line is a callout
-        return line.startsWith('>');
+        // Check if the line starts with '>'
+        if (line.trim().startsWith('>')) {
+            // Check if the line contains a todo marker after the '>'
+            const trimmedLine = line.trim().substring(1).trim();
+            if (this.isTodoLine(trimmedLine)) {
+                return false; // It's a todo element, not a callout
+            }
+            return true; // It's a callout
+        }
+        return false; // Not a callout
     }
 
     isCodeBlock(line) {
@@ -169,7 +185,7 @@ class noteBlocksParser {
     }
 
     isTodoLine(line) {
-        return line.startsWith('- [ ]') || line.startsWith('- [x]');
+        return line.startsWith('- [ ]') || line.trim().startsWith('> - [ ]');
     }
 
     createBlock(type, data, headerLevel = 0) {
@@ -192,6 +208,21 @@ class noteBlocksParser {
                 headerLevel: block.level || 0
             });
         }
+    }
+
+    async run(app, pages) {
+        let allBlocks = [];
+
+        for (const page of pages) {
+            const content = await this.loadFile(app, page.file.path);
+            const blocks = this.parse(content);
+            blocks.forEach(block => {
+                block.page = page.file.path;
+                allBlocks.push(block);
+            });
+        }
+
+        return allBlocks;
     }
 }
 
