@@ -189,12 +189,10 @@ class todoRollover {
 
         // Convert the Map back to an array
         filteredTodos = Array.from(uniqueTodosMap.values());
+        filteredTodos.push("---");
 
-        newContent = [
-            ...currentLines.slice(0, insertIndex),
-            ...filteredTodos.map(todo => todo.line),
-            ...currentLines.slice(insertIndex),
-        ].join("\n");
+        currentLines.splice(insertIndex, 0, ...filteredTodos.map(todo => todo.line));
+        newContent = currentLines.join("\n");
 
         // Save the new content to the current note
         // Ensure the file is not empty before saving
