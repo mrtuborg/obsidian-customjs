@@ -100,7 +100,7 @@ class mentionsProcessor {
             if (mentionBlocksBySource[linkPart].length > 0) {
                 newContent.push(`\n[[${linkPart}]]`);
                 mentionBlocksBySource[linkPart].forEach(mentionData => {
-                    newContent.push(mentionData);
+                    newContent.push(mentionData + '\n');
                 });
             }
         });
