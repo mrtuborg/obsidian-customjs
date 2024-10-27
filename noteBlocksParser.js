@@ -61,7 +61,7 @@ class noteBlocksParser {
                         currentBlock = null
                     }
                     currentBlock = this.createBlock('header', [line], newHeaderLevel); // Start a new block
-                    emptyLineCount = 0; // Reset empty line count
+                    //-emptyLineCount = 0; // Reset empty line count
                 } else {
                     // But we still to finalize currentBlock if it was header with lower header level than now
                      // Add the previously collected block if the new header level is greater than or equal to the current header level
@@ -69,11 +69,11 @@ class noteBlocksParser {
                         this.addBlock(blocks, currentBlock);
                         currentBlock = null
                         currentBlock = this.createBlock('header', [line], newHeaderLevel);
-                        emptyLineCount = 0; // Reset empty line count
+                        //- emptyLineCount = 0; // Reset empty line count
                     }
                     currentBlock.content.push(line); // Add to the current header block
                 }
-
+                emptyLineCount = 0; // Reset empty line count
             } else if (this.isCallout(line)) { // When meet the > line
                 if (currentBlock && currentBlock.blockType == 'header') continue; // Skip code block inside header
 
@@ -133,10 +133,20 @@ class noteBlocksParser {
             // Looking for the end of header block
             } else if (line.trim() === '') { // Empty line
                 emptyLineCount++;
-                if (emptyLineCount >= 2 && currentBlock && currentBlock.blockType === 'header') {
-                    this.addBlock(blocks, currentBlock);
-                    currentBlock = null;
+                if (emptyLineCount >= 2) {
+                    emptyLineCount = 0; // Reset empty line count
+                    if (currentBlock && currentBlock.blockType === 'header') {
+                        this.addBlock(blocks, currentBlock);
+                        currentBlock = null;
+                    }
                 }
+
+                // To keep paragraph formatting, I need to add empty line to the current block
+                // but somehow it breaks the block structure
+                //+ if (currentBlock) {
+                //+    console.log("Empty line in the block: ", currentBlock);
+                //+    currentBlock.content.push('\n'); // Add to the current block
+                //+}
             } else if (line.trim() === '---') { // Horizontal rule
                 if (currentBlock && currentBlock.blockType === 'header') {
                     this.addBlock(blocks, currentBlock);
@@ -147,6 +157,7 @@ class noteBlocksParser {
                 if (currentBlock) {
                     currentBlock.content.push(line); // Add to the current block
                 }
+                emptyLineCount = 0; // Reset empty line count
             }
         }
 

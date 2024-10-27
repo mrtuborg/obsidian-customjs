@@ -32,8 +32,7 @@ class mentionsProcessor {
     }
 
     async processMentions(app, dv, blocks, tagId) {
-
-        //-console.log(blocks);
+        // console.log(blocks);
         // This is async operation
         let mentionBlocks = blocks.filter(
             item => (item.blockType === 'mention' || (item.blockType === 'header' && item.data.includes(tagId)))
@@ -56,7 +55,7 @@ class mentionsProcessor {
         // Initialize mentionBlocksBySource from existing data
         let mentionBlocksBySource = {};
 
-        //-console.log(mentionBlocks);
+        //console.log(mentionBlocks);
         mentionBlocks.forEach(mention => {
             let mentionData = mention.data;
             let mentionPageLink = mention.page;
@@ -69,18 +68,18 @@ class mentionsProcessor {
                 let isMentionDataNew = true;
 
                 mentionLines.forEach(line => {
-                    //-console.log("---");
-                    //-console.log("tagId: ", tagId);
+                    //console.log("---");
+                    //console.log("tagId: ", tagId);
                     line = line.replace(tagId, '').replace(/\[\[.*?\]\]/g, '');
-                    //-console.log("looks for line: ", line);
+                    //console.log("looks for line: ", line);
                     if (currentLines.includes(line)) {
-                        //-console.log("already here, skip");
+                        //console.log("already here, skip");
                         isMentionDataNew = false;
                     }
                 });
 
                 if (isMentionDataNew) {
-                    //-console.log("new data: ", mentionData);
+                    //console.log("new data: ", mentionData);
                     // Initialize the array for the source file if it doesn't exist
                     if (!mentionBlocksBySource[linkPart]) {
                         mentionBlocksBySource[linkPart] = [];

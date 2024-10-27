@@ -6,6 +6,10 @@ class todoRollover {
             return;
         }
 
+        if (typeof content !== 'string') {
+            throw new TypeError('Content must be a string');
+        }
+
         if (content.trim().length == 0) return;
 
         // Modify the file and force cache update
@@ -131,26 +135,37 @@ class todoRollover {
 
         const todayDate = moment(currentPage.name).format("YYYY-MM-DD");
 
-        // This is async operation
-        let todoBlocks = blocks.filter(
-            item => (item.blockType === 'todo')
-        );
+        // Filter out blocks from future dates
+        let todoBlocks = blocks.filter(item => {
+            const blockDate = moment(item.page, "YYYY-MM-DD");
+            return ((item.blockType === 'todo') && blockDate.isSameOrBefore(todayDate));
+        });
+
+        // Log filtered blocks for debugging
+        todoBlocks.forEach(block => {
+            console.log("Processing block from page:", block.page);
+        });
 
         // console.log("Step 3: Open the current note\n");
 
-        // Transform the blocks
-        // This is async operation
-        todoBlocks.filter(block => block.blockType === 'todo');
 
         const currentPageContent = await this.loadFile(app, currentPage.path);
-        const currentLines = currentPageContent.split("\n");
+        let currentLines = currentPageContent.trim().split("\n")
+            .filter(line => {
+                // Cannot handle 'undefined'
+                // console.log("line:", line);
+                // console.log("line.length:", line.length);
+                return line !== undefined && line !== null && line.trim() !== "";
+            });
 
         // console.log("Step 4: Find the last occurrence of '---'");
         let insertIndex = currentLines.lastIndexOf("---") + 1;
 
         // console.log("Step 5: Insert the collected to-do elements after the frontmatter");
-        let newContent = "";
+        let newContent = ""
         let filteredTodos = [];
+        let newTodos = [];
+        let uniqueTodos = [];
 
         // Extract lines from the data field of each todo block and combine them into filteredTodos
         todoBlocks.forEach(block => {
@@ -163,36 +178,38 @@ class todoRollover {
                 });
                 console.log(block.page);
         });
-
         // Avoid adding todos if they are already present in the current note
-        filteredTodos = filteredTodos.map(todo => {
+        filteredTodos.map(todo => {
             const todoLine = todo.line.replace(/^>\s*/, '').trim().toLowerCase();
-            // console.log("todoLine:", todoLine);
+            console.log("todoLine:", todoLine);
             if (!currentLines.some(line => line.replace(/^>\s*/, '').trim().toLowerCase() === todoLine)) {
-                return todo;
+                newTodos.push(todoLine);
             }
             return null;
             })
-            .filter(todo => todo !== null) // Avoid null values
+            .filter(todo => todo !== null) // Avoid null and undefined values
 
         const notesIndex = currentLines.findIndex(line => line.trim() === "# Notes:") + 1;
 
-        if (todoBlocks.length === 0) return;
+        if (newTodos.length === 0) return;
 
         // Create a Map to ensure unique lines while retaining both line and page properties
         const uniqueTodosMap = new Map();
-        filteredTodos.forEach(todo => {
-            if (!uniqueTodosMap.has(todo.line)) {
-                uniqueTodosMap.set(todo.line, todo);
+        newTodos.forEach(todo => {
+            console.log("uniqueTodosMap todo:", todo);
+            if (todo && todo.line !== undefined && todo.line !== null) {
+                if (!uniqueTodosMap.has(todo.line)) {
+                    uniqueTodosMap.set(todo.line, todo);
+                }
             }
         });
 
         // Convert the Map back to an array
-        filteredTodos = Array.from(uniqueTodosMap.values());
-        filteredTodos.push("---");
+        uniqueTodos = Array.from(uniqueTodosMap.values());
+        uniqueTodos.push("---");
 
-        currentLines.splice(insertIndex, 0, ...filteredTodos.map(todo => todo.line));
-        newContent = currentLines.join("\n");
+        currentLines.splice(insertIndex, 0, ...filteredTodos.map(todo => todo.line)).filter(line => line.trim().length > 0);
+        newContent = currentLines.join('\n');
 
         // Save the new content to the current note
         // Ensure the file is not empty before saving
