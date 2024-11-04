@@ -53,9 +53,6 @@ class todoRollover {
                 const normalizedLine = normalizeLine(line);
                 const shouldRemove = filteredTodos.some(todo => {
                     const isMatch = (todo.page === pagePath && normalizedLine.includes(normalizeLine(todo.line)));
-                    //d: if (isMatch) {
-                    //d:    console.log(`Removing line from page ${pagePath}:`, line);
-                    //d:}
                     return isMatch;
                 });
                 return !shouldRemove;
@@ -65,7 +62,6 @@ class todoRollover {
             // Ensure the file is not empty before saving
             if (updatedPageContent.trim().length > 0) {
                 await this.saveFile(app, pagePath, updatedPageContent);
-                //d: console.log("New content for page", pagePath, ":", updatedPageContent);
             }
         }
     }
@@ -138,13 +134,14 @@ class todoRollover {
         // Filter out blocks from future dates
         let todoBlocks = blocks.filter(item => {
             const blockDate = moment(item.page, "YYYY-MM-DD");
-            return ((item.blockType === 'todo') && blockDate.isSameOrBefore(todayDate));
+            return ((item.blockType === 'todo') && blockDate.isBefore(todayDate));
         });
 
-        // Log filtered blocks for debugging
-        todoBlocks.forEach(block => {
-            console.log("Processing block from page:", block.page);
+        let doneBlocks = blocks.filter(item => {
+            const blockDate = moment(item.page, "YYYY-MM-DD");
+            return ((item.blockType === 'done') && blockDate.isBefore(todayDate));
         });
+
 
         // console.log("Step 3: Open the current note\n");
 
@@ -153,8 +150,6 @@ class todoRollover {
         let currentLines = currentPageContent.trim().split("\n")
             .filter(line => {
                 // Cannot handle 'undefined'
-                // console.log("line:", line);
-                // console.log("line.length:", line.length);
                 return line !== undefined && line !== null && line.trim() !== "";
             });
 
@@ -176,13 +171,25 @@ class todoRollover {
                         page: block.page
                     });
                 });
-                console.log(block.page);
         });
+
+        // Extract lines from the data field of each done block and combine them into doneTodos
+        let doneTodos = [];
+        doneBlocks.forEach(block => {
+            const lines = block.data.split('\n');
+            lines.forEach(line => {
+                doneTodos.push({
+                    line: line.replace(/^>\s*/, '').trim(), // Remove '>' and any optional space from the beginning of the line
+                    page: block.page
+                });
+            });
+        });
+
         // Avoid adding todos if they are already present in the current note
         filteredTodos.map(todo => {
-            const todoLine = todo.line.replace(/^>\s*/, '').trim().toLowerCase();
-            console.log("todoLine:", todoLine);
-            if (!currentLines.some(line => line.replace(/^>\s*/, '').trim().toLowerCase() === todoLine)) {
+            const todoLine = todo.line.replace(/^>\s*/, '').replace(/^- \[.\]\s*/, '').trim();
+
+            if (!currentLines.some(line => line.replace(/^>\s*/, '').replace(/^- \[.\]\s*/, '').trim() === todoLine)) {
                 newTodos.push(todoLine);
             }
             return null;
@@ -192,21 +199,6 @@ class todoRollover {
         const notesIndex = currentLines.findIndex(line => line.trim() === "# Notes:") + 1;
 
         if (newTodos.length === 0) return;
-
-        // Create a Map to ensure unique lines while retaining both line and page properties
-        const uniqueTodosMap = new Map();
-        newTodos.forEach(todo => {
-            console.log("uniqueTodosMap todo:", todo);
-            if (todo && todo.line !== undefined && todo.line !== null) {
-                if (!uniqueTodosMap.has(todo.line)) {
-                    uniqueTodosMap.set(todo.line, todo);
-                }
-            }
-        });
-
-        // Convert the Map back to an array
-        uniqueTodos = Array.from(uniqueTodosMap.values());
-        uniqueTodos.push("---");
 
         currentLines.splice(insertIndex, 0, ...filteredTodos.map(todo => todo.line)).filter(line => line.trim().length > 0);
         newContent = currentLines.join('\n');

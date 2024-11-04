@@ -119,17 +119,31 @@ class noteBlocksParser {
                     line = line.trim().substring(1).trim();
                 }
 
-                if (!currentBlock || (currentBlock && currentBlock.blockType !== 'todo')) { // If the current block is not a todoLines block already
+                //if (!currentBlock || (currentBlock && currentBlock.blockType !== 'todo')) { // If the current block is not a todoLines block already
                     // Add the previously collected block before starting a new one
                     if (currentBlock) {
                         this.addBlock(blocks, currentBlock);
                         currentBlock = null
                     }
                     currentBlock = this.createBlock('todo', [line]); // Start a new block
-                } else {
+                //} else {
                     // If the current block is still a todoLines, we need just to add the line
-                    currentBlock.content.push(line);
+                //    currentBlock.content.push(line);
+                //}
+            } else if (this.isDoneLine(line)) {
+                if (currentBlock && currentBlock.blockType == 'header') continue;
+                if (line.trim().startsWith('>')) {
+                    line = line.trim().substring(1).trim();
                 }
+                //if (!currentBlock || (currentBlock && currentBlock.blockType !== 'done')) {
+                    if (currentBlock) {
+                        this.addBlock(blocks, currentBlock);
+                        currentBlock = null;
+                    }
+                    currentBlock = this.createBlock('done', [line]);
+                //} else {
+                //    currentBlock.content.push(line);
+                //}
             // Looking for the end of header block
             } else if (line.trim() === '') { // Empty line
                 emptyLineCount++;
@@ -199,6 +213,10 @@ class noteBlocksParser {
         return line.startsWith('- [ ]') || line.trim().startsWith('> - [ ]');
     }
 
+    isDoneLine(line) {
+        return line.startsWith('- [x]') || line.trim().startsWith('> - [x]');
+    }
+
     createBlock(type, data, headerLevel = 0) {
         return {
             page: '', // Placeholder, should be set appropriately
@@ -230,7 +248,9 @@ class noteBlocksParser {
             blocks.forEach(block => {
                 block.page = page.file.path;
                 allBlocks.push(block);
+                //-if (block.blockType == "todo") console.log(block);
             });
+
         }
 
         return allBlocks;
