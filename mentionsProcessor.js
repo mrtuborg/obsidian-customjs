@@ -40,12 +40,14 @@ class mentionsProcessor {
   // Mentions are defined within double curly braces {} in the markdown file
 
   async processMentions(app, dv, blocks, tagId) {
-    // console.log(blocks);
+    //console.log(blocks);
     // This is async operation
     let mentionBlocks = blocks.filter(
       (item) =>
-        item.blockType === "mention" ||
-        (item.blockType === "header" && item.data.includes(tagId))
+        (item.blockType === "mention" ||
+          item.blockType === "header" ||
+          item.blockType === "code") &&
+        item.data.includes(tagId)
     );
 
     const currentPage = dv.current().file;
@@ -65,7 +67,6 @@ class mentionsProcessor {
     // Initialize mentionBlocksBySource from existing data
     let mentionBlocksBySource = {};
 
-    //console.log(mentionBlocks);
     mentionBlocks.forEach((mention) => {
       let mentionData = mention.data;
       let mentionPageLink = mention.page;
@@ -80,12 +81,14 @@ class mentionsProcessor {
         const mentionLines = mentionData.split("\n");
         let isMentionDataNew = true;
 
+        // Avoid adding duplicate mentions
+        // Check if the mention data already exists in the current lines
         mentionLines.forEach((line) => {
           //console.log("---");
           //console.log("tagId: ", tagId);
           line = line.replace(tagId, "").replace(/\[\[.*?\]\]/g, "");
           //console.log("looks for line: ", line);
-          if (currentLines.includes(line)) {
+          if (currentLines.includes(line) && !currentLines.includes("```")) {
             //console.log("already here, skip");
             isMentionDataNew = false;
           }
@@ -104,7 +107,7 @@ class mentionsProcessor {
       }
     });
 
-    //-console.log(mentionBlocksBySource);
+    //console.log(mentionBlocksBySource);
 
     if (mentionBlocks.length === 0) return;
 

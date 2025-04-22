@@ -177,9 +177,6 @@ class noteBlocksParser {
       } else if (line.trim() === "") {
         // We need to count empty lines and finalize the block if there are two empty lines
         emptyLineCount++;
-        console.log("After line ", line);
-        console.log("emptyLineCount = ", emptyLineCount);
-        console.log("currentBlock = ", currentBlock);
         if (emptyLineCount >= 2) {
           emptyLineCount = 0; // Reset empty line count
           if (currentBlock) {
@@ -216,7 +213,7 @@ class noteBlocksParser {
     }
 
     // Add the last collected block
-    this.addBlock(blocks, currentBlock);
+    // this.addBlock(blocks, currentBlock);
     return blocks;
   }
 
@@ -288,7 +285,6 @@ class noteBlocksParser {
       blocks.forEach((block) => {
         block.page = page.file.path;
         allBlocks.push(block);
-        //-if (block.blockType == "todo") console.log(block);
       });
     }
 
