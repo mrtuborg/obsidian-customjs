@@ -193,7 +193,7 @@ class noteBlocksParser {
         //+    console.log("Empty line in the block: ", currentBlock);
         //+    currentBlock.content.push('\n'); // Add to the current block
         //+}
-      } else if (line.trim() === "---") {
+      } else if (line.trim() === "----") {
         // Horizontal ruler
         if (currentBlock) {
           // && currentBlock.blockType === "header") {
@@ -288,6 +288,7 @@ class noteBlocksParser {
       });
     }
 
+    console.log("Parsed blocks: ", allBlocks);
     return allBlocks;
   }
 }

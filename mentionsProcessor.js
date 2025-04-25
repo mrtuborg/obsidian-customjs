@@ -40,7 +40,6 @@ class mentionsProcessor {
   // Mentions are defined within double curly braces {} in the markdown file
 
   async processMentions(app, dv, blocks, tagId) {
-    //console.log(blocks);
     // This is async operation
     let mentionBlocks = blocks.filter(
       (item) =>
@@ -56,10 +55,10 @@ class mentionsProcessor {
     const currentPageContent = await this.loadFile(app, currentPage.path);
     const currentLines = currentPageContent.split("\n");
 
-    //console.log("Step 4: Find the last occurrence of '---'");
-    let insertIndex = currentLines.lastIndexOf("---") + 1;
-    const notesIndex =
-      currentLines.findIndex((line) => line.trim() === "# Notes:") + 1;
+    //console.log("Step 4: Find the last occurrence of '***'");
+    let insertIndex = currentLines.lastIndexOf("***") + 1;
+    //- const notesIndex =
+    //-   currentLines.findIndex((line) => line.trim() === "### Notes:") + 1;
 
     //console.log("Step 5: Insert the collected mentions elements after the latest '---'");
 
@@ -70,7 +69,7 @@ class mentionsProcessor {
     mentionBlocks.forEach((mention) => {
       let mentionData = mention.data;
       let mentionPageLink = mention.page;
-
+      console.log("mention", mention);
       const linkPart = mentionPageLink
         .toString()
         .replace(/.*\/|\.md.*/g, "")
@@ -79,6 +78,7 @@ class mentionsProcessor {
       // Add the mention block to the map
       if (mentionData.length > 0 && mentionData.includes(tagId)) {
         const mentionLines = mentionData.split("\n");
+        //-console.log("mentionLines: ", mentionLines);
         let isMentionDataNew = true;
 
         // Avoid adding duplicate mentions
@@ -95,7 +95,7 @@ class mentionsProcessor {
         });
 
         if (isMentionDataNew) {
-          //console.log("new data: ", mentionData);
+          //-console.log("new data: ", mentionData);
           // Initialize the array for the source file if it doesn't exist
           if (!mentionBlocksBySource[linkPart]) {
             mentionBlocksBySource[linkPart] = [];
@@ -113,7 +113,10 @@ class mentionsProcessor {
 
     let newContent = [];
     Object.keys(mentionBlocksBySource).forEach((linkPart) => {
-      if (mentionBlocksBySource[linkPart].length > 0) {
+      const blockDataLength = mentionBlocksBySource[linkPart]
+        .join("\n")
+        .trim().length;
+      if (blockDataLength > 0) {
         newContent.push(`\n[[${linkPart}]]`);
         mentionBlocksBySource[linkPart].forEach((mentionData) => {
           newContent.push(mentionData + "\n");
