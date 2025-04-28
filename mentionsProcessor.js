@@ -2,44 +2,12 @@
 // It collects all the mentions and adds them to the current page.
 
 class mentionsProcessor {
-  async saveFile(app, filename, content) {
-    const abstractFilePath = app.vault.getAbstractFileByPath(filename);
-    if (!abstractFilePath) {
-      console.error("File not found: ", page.path);
-      return;
-    }
-
-    if (content.trim().length == 0) return;
-
-    // Modify the file and force cache update
-    await app.vault.modify(abstractFilePath, content);
-
-    // Force cache update (if applicable)
-    if (app.metadataCache) {
-      await app.metadataCache.getFileCache(abstractFilePath);
-    }
-
-    // workaround
-    await app.vault.modify(abstractFilePath, content);
-  }
-
-  async loadFile(app, filename) {
-    const abstractFilePath = app.vault.getAbstractFileByPath(filename);
-    if (!abstractFilePath) {
-      console.error("File not found: ", filename);
-      return null;
-    }
-
-    const content = await app.vault.read(abstractFilePath);
-    return content;
-  }
-
   // This function processes the mentions in the markdown file
   // It reads the file content, extracts the frontmatter, and processes each line
   // to update the mentions based on the specified operations.
   // Mentions are defined within double curly braces {} in the markdown file
 
-  async processMentions(app, dv, blocks, tagId) {
+  async processMentions(currentPageContent, blocks, tagId) {
     // This is async operation
     let mentionBlocks = blocks.filter(
       (item) =>
@@ -49,14 +17,18 @@ class mentionsProcessor {
         item.data.includes(tagId)
     );
 
-    const currentPage = dv.current().file;
-
     //console.log("Step 3: Open the current note\n");
-    const currentPageContent = await this.loadFile(app, currentPage.path);
     const currentLines = currentPageContent.split("\n");
 
     //console.log("Step 4: Find the last occurrence of '***'");
-    let insertIndex = currentLines.lastIndexOf("***") + 1;
+    let insertIndex = Math.max(
+      currentLines.lastIndexOf("---"),
+      currentLines.lastIndexOf("----")
+    );
+
+    // If neither is found, set insertIndex to the end of the lines
+    insertIndex =
+      insertIndex !== -1 ? insertIndex + 1 : currentLines.length + 1;
     //- const notesIndex =
     //-   currentLines.findIndex((line) => line.trim() === "### Notes:") + 1;
 
@@ -107,9 +79,9 @@ class mentionsProcessor {
       }
     });
 
-    //console.log(mentionBlocksBySource);
+    console.log(mentionBlocksBySource);
 
-    if (mentionBlocks.length === 0) return;
+    if (mentionBlocks.length === 0) return "";
 
     let newContent = [];
     Object.keys(mentionBlocksBySource).forEach((linkPart) => {
@@ -124,20 +96,21 @@ class mentionsProcessor {
       }
     });
 
-    if (newContent.length === 0) return;
-
+    if (newContent.length === 0) return "";
     newContent.push("\n---");
-
+    console.log("newContent: ", newContent);
     // Insert the new mention blocks
     currentLines.splice(insertIndex, 0, ...newContent);
     newContent = currentLines.join("\n");
 
-    // Save the new content to the current note
-    // Ensure the file is not empty before saving
-    await this.saveFile(app, currentPage.path, newContent);
+    return newContent;
   }
 
-  async run(app, dv, collectedBlocks, mentionStr) {
-    await this.processMentions(app, dv, collectedBlocks, mentionStr);
+  async run(currentPageContent, collectedBlocks, mentionStr) {
+    return await this.processMentions(
+      currentPageContent,
+      collectedBlocks,
+      mentionStr
+    );
   }
 }

@@ -193,7 +193,7 @@ class noteBlocksParser {
         //+    console.log("Empty line in the block: ", currentBlock);
         //+    currentBlock.content.push('\n'); // Add to the current block
         //+}
-      } else if (line.trim() === "----") {
+      } else if (line.trim() === "---" || line.trim() === "----") {
         // Horizontal ruler
         if (currentBlock) {
           // && currentBlock.blockType === "header") {
@@ -266,20 +266,44 @@ class noteBlocksParser {
 
   addBlock(blocks, block) {
     if (block) {
-      blocks.push({
-        page: block.page, // Add logic to determine the page link if necessary
-        blockType: block.blockType,
-        data: block.content.join("\n"),
-        mtime: block.mtime, // Use actual modification time if available
-        headerLevel: block.level || 0,
-      });
+      // Check if the block already exists in the blocks array
+      const isDuplicate = blocks.some(
+        (existingBlock) =>
+          existingBlock.page === block.page &&
+          existingBlock.blockType === block.blockType &&
+          existingBlock.data === block.content.join("\n") &&
+          existingBlock.headerLevel === (block.level || 0)
+      );
+
+      // Only push the block if it is not a duplicate
+      if (!isDuplicate) {
+        blocks.push({
+          page: block.page, // Add logic to determine the page link if necessary
+          blockType: block.blockType,
+          data: block.content.join("\n"),
+          mtime: block.mtime, // Use actual modification time if available
+          headerLevel: block.level || 0,
+        });
+      }
     }
   }
 
-  async run(app, pages) {
+  async run(app, pages, namePattern = "") {
     let allBlocks = [];
 
+    console.log("Starting to process pages...");
+    console.log("Name pattern:", namePattern);
+
     for (const page of pages) {
+      // If a namePattern is provided, check if the page name includes the pattern
+      if (namePattern && !moment(page.file.name, namePattern, true).isValid()) {
+        console.log(
+          "Skipping file (does not match date format):",
+          page.file.name
+        );
+        continue;
+      }
+
       const content = await this.loadFile(app, page.file.path);
       const blocks = this.parse(page.file.path, content);
       blocks.forEach((block) => {
@@ -288,7 +312,7 @@ class noteBlocksParser {
       });
     }
 
-    console.log("Parsed blocks: ", allBlocks);
+    console.log("Finished processing pages. Parsed blocks:", allBlocks);
     return allBlocks;
   }
 }

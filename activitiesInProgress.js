@@ -1,40 +1,4 @@
 class activitiesInProgress {
-  async saveFile(app, filename, content) {
-    const abstractFilePath = app.vault.getAbstractFileByPath(filename);
-    if (!abstractFilePath) {
-      console.error("File not found: ", page.path);
-      return;
-    }
-
-    if (typeof content !== "string") {
-      throw new TypeError("Content must be a string");
-    }
-
-    if (content.trim().length == 0) return;
-
-    // Modify the file and force cache update
-    await app.vault.modify(abstractFilePath, content);
-
-    // Force cache update (if applicable)
-    if (app.metadataCache) {
-      await app.metadataCache.getFileCache(abstractFilePath);
-    }
-
-    // workaround
-    await app.vault.modify(abstractFilePath, content);
-  }
-
-  async loadFile(app, filename) {
-    const abstractFilePath = app.vault.getAbstractFileByPath(filename);
-    if (!abstractFilePath) {
-      console.error("File not found: ", filename);
-      return null;
-    }
-
-    const content = await app.vault.read(abstractFilePath);
-    return content;
-  }
-
   async filterActivities(app) {
     const activitiesFolder = "Activities"; // Replace with the exact folder name in your vault
     const archiveFolder = activitiesFolder + "/Archive"; // Folder to exclude
@@ -49,7 +13,6 @@ class activitiesInProgress {
     const filteredActivities = [];
 
     for (const file of files) {
-      const fileContent = await app.vault.read(file);
       const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
 
       if (frontmatter && frontmatter.stage && frontmatter.stage !== "done") {
@@ -78,16 +41,18 @@ class activitiesInProgress {
     return filteredActivities;
   }
 
-  async insertActivitiesIntoDailyNote(app, dv, activities) {
-    const currentPage = dv.current().file;
-
-    if (!currentPage) {
-      console.error("No current page found.");
-      return;
+  async insertActivitiesIntoDailyNote(currentPageContent, activities) {
+    let currentLines = [];
+    if (currentPageContent && currentPageContent.length > 0) {
+      // Split the content into lines and filter out empty lines
+      currentLines = currentPageContent
+        .trim()
+        .split("\n")
+        .filter((line) => {
+          // Cannot handle 'undefined'
+          return line !== undefined && line !== null && line.trim() !== "";
+        });
     }
-
-    const currentPageContent = await this.loadFile(app, currentPage.path);
-    let currentLines = currentPageContent.trim().split("\n");
 
     // Prepare the activities to be added
     const activityLines = activities.flatMap((activity) => {
@@ -96,7 +61,7 @@ class activitiesInProgress {
         .split("/")
         .pop()
         .replace(/\.[^/.]+$/, "");
-      return [`## [[${activity.path}|${filename}]]`, ``, `----`];
+      return [`##### [[${activity.path}|${filename}]]`, ``, `----`];
     });
 
     // Append the activities to the end of the note
@@ -111,16 +76,12 @@ class activitiesInProgress {
       ``,
     ].join(`\n`);
 
-    console.log(newContent);
-
-    // Save the updated content back to the current note
-    await this.saveFile(app, currentPage.path, newContent);
+    return newContent;
   }
 
-  async run(app, dv) {
+  async run(app, currentPageContent) {
     return await this.insertActivitiesIntoDailyNote(
-      app,
-      dv,
+      currentPageContent,
       await this.filterActivities(app)
     );
   }
