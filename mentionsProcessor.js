@@ -14,11 +14,14 @@ class mentionsProcessor {
         (item.blockType === "mention" ||
           item.blockType === "header" ||
           item.blockType === "code") &&
-        item.data.includes(tagId)
+        item.data.includes(tagId) &&
+        !currentPageContent.includes(tagId) // Exclude blocks from the current page
     );
 
     //console.log("Step 3: Open the current note\n");
-    const currentLines = currentPageContent.split("\n");
+    let currentLines = [];
+    if (currentPageContent && currentPageContent.trim().length > 0)
+      currentLines = currentPageContent.split("\n");
 
     //console.log("Step 4: Find the last occurrence of '***'");
     let insertIndex = Math.max(
@@ -29,8 +32,6 @@ class mentionsProcessor {
     // If neither is found, set insertIndex to the end of the lines
     insertIndex =
       insertIndex !== -1 ? insertIndex + 1 : currentLines.length + 1;
-    //- const notesIndex =
-    //-   currentLines.findIndex((line) => line.trim() === "### Notes:") + 1;
 
     //console.log("Step 5: Insert the collected mentions elements after the latest '---'");
 
@@ -38,37 +39,42 @@ class mentionsProcessor {
     // Initialize mentionBlocksBySource from existing data
     let mentionBlocksBySource = {};
 
+    // Helper function to normalize a line
+    function normalizeLine(line, tagId) {
+      return line
+        .replace(tagId, "")
+        .replace(/\[\[.*?\]\]/g, "")
+        .trim();
+    }
+
+    // Helper function to check if a line is new
+    function isLineNew(normalizedLine, normalizedCurrentLines) {
+      return !normalizedCurrentLines.includes(normalizedLine);
+    }
+
+    // Main processing logic
     mentionBlocks.forEach((mention) => {
       let mentionData = mention.data;
       let mentionPageLink = mention.page;
-      console.log("mention", mention);
+
       const linkPart = mentionPageLink
         .toString()
         .replace(/.*\/|\.md.*/g, "")
         .trim();
 
-      // Add the mention block to the map
       if (mentionData.length > 0 && mentionData.includes(tagId)) {
         const mentionLines = mentionData.split("\n");
-        //-console.log("mentionLines: ", mentionLines);
-        let isMentionDataNew = true;
+        const normalizedCurrentLines = currentLines.map((l) => l.trim());
+        let isMentionDataNew = false;
 
-        // Avoid adding duplicate mentions
-        // Check if the mention data already exists in the current lines
         mentionLines.forEach((line) => {
-          //console.log("---");
-          //console.log("tagId: ", tagId);
-          line = line.replace(tagId, "").replace(/\[\[.*?\]\]/g, "");
-          //console.log("looks for line: ", line);
-          if (currentLines.includes(line) && !currentLines.includes("```")) {
-            //console.log("already here, skip");
-            isMentionDataNew = false;
+          const normalizedLine = normalizeLine(line, tagId);
+          if (isLineNew(normalizedLine, normalizedCurrentLines)) {
+            isMentionDataNew = true;
           }
         });
 
         if (isMentionDataNew) {
-          //-console.log("new data: ", mentionData);
-          // Initialize the array for the source file if it doesn't exist
           if (!mentionBlocksBySource[linkPart]) {
             mentionBlocksBySource[linkPart] = [];
           }
@@ -98,7 +104,7 @@ class mentionsProcessor {
 
     if (newContent.length === 0) return "";
     newContent.push("\n---");
-    console.log("newContent: ", newContent);
+
     // Insert the new mention blocks
     currentLines.splice(insertIndex, 0, ...newContent);
     newContent = currentLines.join("\n");

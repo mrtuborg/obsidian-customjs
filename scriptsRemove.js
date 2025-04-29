@@ -36,8 +36,7 @@ class scriptsRemove {
       return !inCodeBlock; // Remove lines within the code block
     });
 
-    const newContent = currentLines.join("\n") + "\n\n### Notes:";
-    //-await this.saveFile(app, currentPage.path, newContent);
+    const newContent = currentLines.join("\n");
     return newContent;
   }
 

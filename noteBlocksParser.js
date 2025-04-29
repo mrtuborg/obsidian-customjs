@@ -291,8 +291,8 @@ class noteBlocksParser {
   async run(app, pages, namePattern = "") {
     let allBlocks = [];
 
-    console.log("Starting to process pages...");
-    console.log("Name pattern:", namePattern);
+    //console.log("Starting to process pages...");
+    //console.log("Name pattern:", namePattern);
 
     for (const page of pages) {
       // If a namePattern is provided, check if the page name includes the pattern
@@ -312,7 +312,7 @@ class noteBlocksParser {
       });
     }
 
-    console.log("Finished processing pages. Parsed blocks:", allBlocks);
+    //console.log("Finished processing pages. Parsed blocks:", allBlocks);
     return allBlocks;
   }
 }

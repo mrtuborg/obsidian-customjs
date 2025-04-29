@@ -80,21 +80,62 @@ class fileIO {
     return headerLines.join("\n");
   }
 
-  removeFrontmatter(content) {
+  extractFrontmatterAndDataviewJs(content) {
     const lines = content.split("\n");
+    let frontmatter = "";
+    let dataviewJsBlock = "";
+    let pageContent = content.trim();
+
+    // Extract frontmatter
     if (lines[0] === "---") {
-      // Find the closing '---'
       for (let i = 1; i < lines.length; i++) {
         if (lines[i] === "---") {
-          // Return content after the closing '---'
-          return lines
+          frontmatter = lines
+            .slice(0, i + 1)
+            .join("\n")
+            .trim();
+          pageContent = lines
             .slice(i + 1)
             .join("\n")
             .trim();
+          break;
         }
       }
     }
-    // If no frontmatter is found, return the original content
-    return content.trim();
+
+    // Extract dataviewjs block
+    if (pageContent.startsWith("```dataviewjs")) {
+      const dataviewLines = pageContent.split("\n");
+      let blockStart = -1;
+      let blockEnd = -1;
+
+      for (let i = 0; i < dataviewLines.length; i++) {
+        if (dataviewLines[i].startsWith("```dataviewjs") && blockStart === -1) {
+          blockStart = i;
+        } else if (dataviewLines[i].startsWith("```") && blockStart !== -1) {
+          blockEnd = i;
+          break;
+        }
+      }
+
+      if (blockStart !== -1 && blockEnd !== -1) {
+        dataviewJsBlock = dataviewLines
+          .slice(blockStart, blockEnd + 1)
+          .join("\n")
+          .trim();
+
+        pageContent = dataviewLines
+          .slice(blockEnd + 1)
+          .join("\n")
+          .trim();
+      }
+    }
+
+    // Ensure all values are defined and not undefined
+    frontmatter = frontmatter || "";
+    dataviewJsBlock = dataviewJsBlock || "";
+    pageContent = pageContent || "";
+
+    return { frontmatter, dataviewJsBlock, pageContent };
   }
 }
