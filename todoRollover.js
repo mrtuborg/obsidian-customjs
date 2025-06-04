@@ -93,7 +93,6 @@ class todoRollover {
       return null;
     }
 
-    const todayDate = new Date();
     const nextDate = new Date(noteDate);
 
     if (daily) {
@@ -104,7 +103,6 @@ class todoRollover {
       nextDate.setMonth(nextDate.getMonth() + 1);
     }
 
-    console.log(`Next date: ${moment(nextDate).format("YYYY-MM-DD")}`);
     return nextDate;
   }
 
@@ -132,7 +130,6 @@ class todoRollover {
         if (!current) return;
         */
 
-    console.log("blocks: ", blocks);
     // Filter out blocks from future dates
     let todoBlocks = blocks.filter((item) => {
       const blockDate = moment(item.page, "YYYY-MM-DD");
@@ -173,7 +170,6 @@ class todoRollover {
     let filteredTodos = [];
     let newTodos = [];
 
-    console.log("todoBlocks 1: ", todoBlocks);
     // Extract lines from the data field of each todo block and combine them into filteredTodos
     todoBlocks.forEach((block) => {
       const lines = block.data.split("\n");
@@ -185,7 +181,6 @@ class todoRollover {
       });
     });
 
-    console.log("todoBlocks 2: ", todoBlocks);
     // Extract lines from the data field of each done block and combine them into doneTodos
     let doneTodos = [];
     doneBlocks.forEach((block) => {

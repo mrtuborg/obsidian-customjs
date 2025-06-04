@@ -1,5 +1,9 @@
 class activitiesInProgress {
   async filterActivities(app) {
+    const currentDate = new Date();
+
+    const currentDateString = currentDate.toISOString().split("T")[0];
+
     const activitiesFolder = "Activities"; // Replace with the exact folder name in your vault
     const archiveFolder = activitiesFolder + "/Archive"; // Folder to exclude
     const files = app.vault
@@ -15,13 +19,23 @@ class activitiesInProgress {
     for (const file of files) {
       const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
 
-      if (frontmatter && frontmatter.stage && frontmatter.stage !== "done") {
+      if (!frontmatter || !frontmatter.stage) break;
+
+      if (
+        frontmatter.stage !== "done" &&
+        moment(frontmatter.startDate, "YYYY-MM-DD").isSameOrBefore(
+          currentDateString,
+          "YYYY-MM-DD"
+        )
+      ) {
         filteredActivities.push({
           path: file.path,
           stage: frontmatter.stage,
         });
       }
     }
+
+    if (filteredActivities.length === 0) return [];
 
     // Sort activities alphabetically by filename
     filteredActivities.sort((a, b) => {

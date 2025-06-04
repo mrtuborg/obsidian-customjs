@@ -85,8 +85,6 @@ class mentionsProcessor {
       }
     });
 
-    console.log(mentionBlocksBySource);
-
     if (mentionBlocks.length === 0) return "";
 
     let newContent = [];

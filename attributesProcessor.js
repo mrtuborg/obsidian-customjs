@@ -40,24 +40,7 @@ class attributesProcessor {
   // - "-=": Decrement the attribute by a specific value
   // - ":": Set the attribute to a specific string value
 
-  async processAttributes(app, dv, page) {
-    const content = await dv.io.load(page.path);
-
-    // File contains frontmatter if it has double --- at the beginning with some information inside
-    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-
-    let frontmatter = {};
-    let bodyContent = content;
-    if (frontmatterMatch) {
-      const frontmatterLines = frontmatterMatch[1].split("\n");
-      frontmatterLines.forEach((line) => {
-        const [key, ...rest] = line.split(":");
-        frontmatter[key.trim()] = rest.join(":").trim();
-      });
-      // Remove frontmatter from content
-      bodyContent = content.slice(frontmatterMatch[0].length);
-    }
-
+  async processAttributes(frontmatter, bodyContent) {
     const lines = bodyContent.split("\n");
     let inCodeBlock = false;
 
@@ -145,7 +128,7 @@ class attributesProcessor {
     }
     frontmatterString += "---\n";
 
-    await this.saveFile(page.path, frontmatterString + "\n" + bodyContent);
+    //await this.saveFile(page.path, frontmatterString + "\n" + bodyContent);
   }
 
   // This function is the main entry point for the script

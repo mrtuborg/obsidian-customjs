@@ -61,8 +61,61 @@ class fileIO {
     return fileName === formattedDate;
   }
 
+  todayDate() {
+    const currentDate = new Date();
+    return currentDate.toISOString().split("T")[0];
+  }
+
+  generateActivityHeader(date, stage, responsible) {
+    // Convert date to proper format
+    let formattedDate = moment(date).format("YYYY-MM-DD");
+
+    // Ensure formatting was successful
+    if (!formattedDate || formattedDate === "Invalid date") {
+      throw new Error(`Failed to format date: ${date}`);
+    }
+
+    // Validate formatted date
+    if (!moment(formattedDate, "YYYY-MM-DD", true).isValid()) {
+      throw new Error(
+        `Invalid date format ${formattedDate}. Expected YYYY-MM-DD.`
+      );
+    }
+
+    // Validate stage
+    if (typeof stage !== "string" || !["active", "done"].includes(stage)) {
+      throw new Error(`Invalid stage ${stage}. Expected 'active' or 'done'.`);
+    }
+
+    // Ensure responsible is always an array
+    if (typeof responsible === "string") {
+      responsible = [responsible]; // Convert string into an array with one element
+    }
+
+    // Validate responsible: Ensure it's an array and all elements are strings
+    if (
+      !Array.isArray(responsible) ||
+      !responsible.every((r) => typeof r === "string")
+    ) {
+      throw new Error(
+        `Invalid responsible ${JSON.stringify(
+          responsible
+        )}. Expected an array of strings.`
+      );
+    }
+
+    let headerLines = [
+      "---",
+      `startDate: ${formattedDate}`,
+      `stage: ${stage}`,
+      `responsible: [${responsible}]`,
+      "---",
+    ];
+    return headerLines.join("\n");
+  }
+
   // Function to generate the header
-  generateHeader(title) {
+  generateDailyNoteHeader(title) {
     const year = moment(title, "YYYY-MM-DD").format("YYYY");
     const month = moment(title, "YYYY-MM-DD").format("YYYY-MM");
     const monthStr = moment(title, "YYYY-MM-DD").format("MMMM");
