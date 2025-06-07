@@ -213,7 +213,7 @@ class noteBlocksParser {
     }
 
     // Add the last collected block
-    // this.addBlock(blocks, currentBlock);
+    this.addBlock(blocks, currentBlock);
     return blocks;
   }
 
