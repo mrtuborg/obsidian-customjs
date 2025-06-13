@@ -70,7 +70,7 @@ class noteBlocksParser {
             [line],
             newHeaderLevel
           ); // Start a new block
-          //-emptyLineCount = 0; // Reset empty line count
+          emptyLineCount = 0; // Reset empty line count
         } else {
           // But we still to finalize currentBlock if it was header with lower header level than now
           // Add the previously collected block if the new header level is greater than to the current header level
@@ -106,6 +106,7 @@ class noteBlocksParser {
         } else {
           currentBlock.content.push(line);
         }
+        emptyLineCount = 0; // Reset empty line count
       } else if (this.isCodeBlock(line)) {
         // When meet the ``` line
         if (currentBlock && currentBlock.blockType == "header") continue; // Skip code block inside header
@@ -124,6 +125,7 @@ class noteBlocksParser {
         } else {
           currentBlock.content.push(line); // Add to the current header block
         }
+        emptyLineCount = 0; // Reset empty line count
       } else if (this.isMention(line)) {
         if (currentBlock && currentBlock.blockType == "header") continue; // Skip code block inside header
 
@@ -134,7 +136,8 @@ class noteBlocksParser {
           currentBlock = null;
         }
         currentBlock = this.createBlock(page, "mention", [line]); // Start a new block
-      } else if (this.isTodoLine(line)) {
+        emptyLineCount = 0; // Reset empty line count
+      } else if (this.isTodoLine(line) && currentBlock.blockType !== "header") {
         // When meet the - [ ] line
         // Check if the line is a todo line
 
@@ -163,6 +166,7 @@ class noteBlocksParser {
         currentBlock = this.createBlock(page, "todo", [line]);
         this.addBlock(blocks, currentBlock);
         currentBlock = null;
+        emptyLineCount = 0; // Reset empty line count
       } else if (this.isDoneLine(line)) {
         if (currentBlock && currentBlock.blockType == "header") continue;
         if (line.trim().startsWith(">")) {
@@ -173,6 +177,7 @@ class noteBlocksParser {
           currentBlock = null;
         }
         currentBlock = this.createBlock(page, "done", [line]);
+        emptyLineCount = 0; // Reset empty line count
         // Looking for the end of header block
       } else if (line.trim() === "") {
         // We need to count empty lines and finalize the block if there are two empty lines
@@ -235,7 +240,14 @@ class noteBlocksParser {
   }
 
   isHeader(line) {
-    return /^#+\s/.test(line);
+    // A header is a line starting with one or more # characters, followed by at least one space or tab,
+    // and then at least one non-whitespace character (text).
+    const match = line.match(/^(#+)[ \t]+(.*)$/);
+    if (match) {
+      // match[2] is the text after the # and whitespace
+      return match[2].trim().length > 0;
+    }
+    return false;
   }
 
   getHeaderLevel(line) {

@@ -93,15 +93,27 @@ class mentionsProcessor {
         .join("\n")
         .trim().length;
       if (blockDataLength > 0) {
-        newContent.push(`\n[[${linkPart}]]`);
-        mentionBlocksBySource[linkPart].forEach((mentionData) => {
-          newContent.push(mentionData + "\n");
-        });
+        // Filter mention data to remove non-meaningful headers but keep empty lines
+        const filteredMentions = mentionBlocksBySource[linkPart].filter(
+          (mentionData) => {
+            const trimmed = mentionData.trim();
+            return !/^(#+)[ \t]*$/.test(trimmed);
+          }
+        );
+
+        if (filteredMentions.length > 0) {
+          newContent.push(`\n[[${linkPart}]]`);
+          filteredMentions.forEach((mentionData) => {
+            newContent.push(mentionData + "\n");
+          });
+        }
       }
     });
 
     if (newContent.length === 0) return "";
-    newContent.push("\n---");
+    newContent.push("\n----");
+
+    console.log("mentionProcessor:", newContent);
 
     // Insert the new mention blocks
     currentLines.splice(insertIndex, 0, ...newContent);
