@@ -18,9 +18,10 @@ class activitiesInProgress {
 
     for (const file of files) {
       const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
+      if (!frontmatter || !frontmatter.stage) continue;
 
-      if (!frontmatter || !frontmatter.stage) break;
-
+      // Check if the activity is in progress or not done
+      // and if the start date is before or equal to the current date
       if (
         frontmatter.stage !== "done" &&
         moment(frontmatter.startDate, "YYYY-MM-DD").isSameOrBefore(
@@ -55,6 +56,34 @@ class activitiesInProgress {
     return filteredActivities;
   }
 
+  async analyzeActivityFileContentForTodos(filePath) {
+    const fileContent = await app.vault.read(
+      app.vault.getAbstractFileByPath(filePath)
+    );
+    // Check if fileContent is undefined or empty
+    if (!fileContent) {
+      console.warn(`No content found for file: ${filePath}`);
+      return [];
+    }
+    console.log(`Analyzing file: ${filePath}`);
+
+    if (fileContent.length === 0) {
+      console.warn(`File is empty: ${filePath}`);
+      return [];
+    }
+    // Split the content into lines and filter out empty lines
+    const lines = fileContent
+      .trim()
+      .split("\n")
+      .filter((line) => line.trim() !== "");
+
+    // Extract lines that start with '- [ ]' or '- [x]'
+    const todoLines = lines.filter(
+      (line) => line.startsWith("- [ ]") || line.startsWith("- [x]")
+    );
+    return todoLines;
+  }
+
   async insertActivitiesIntoDailyNote(currentPageContent, activities) {
     let currentLines = [];
     if (currentPageContent && currentPageContent.length > 0) {
@@ -67,16 +96,32 @@ class activitiesInProgress {
           return line !== undefined && line !== null && line.trim() !== "";
         });
     }
-
     // Prepare the activities to be added
-    const activityLines = activities.flatMap((activity) => {
-      // Extract the filename without path and extension
-      const filename = activity.path
-        .split("/")
-        .pop()
-        .replace(/\.[^/.]+$/, "");
-      return [`##### [[${activity.path}|${filename}]]`, ``, `----`];
-    });
+    const activityLinesArrays = await Promise.all(
+      activities.map(async (activity) => {
+        // Extract the filename without path and extension
+        const filename = activity.path
+          .split("/")
+          .pop()
+          .replace(/\.[^/.]+$/, "");
+
+        let activityToDos = await this.analyzeActivityFileContentForTodos(
+          activity.path
+        );
+        if (activityToDos.length > 0)
+          console.log("Found todos:", activityToDos);
+        if (activityToDos.length > 0) {
+          return [
+            `##### [[${activity.path}|${filename}]]`,
+            ...activityToDos,
+            `----`,
+          ];
+        } else {
+          return [`##### [[${activity.path}|${filename}]]`, `----`];
+        }
+      })
+    );
+    const activityLines = activityLinesArrays.flat();
 
     // Append the activities to the end of the note
     const newContent = [
@@ -94,6 +139,8 @@ class activitiesInProgress {
   }
 
   async run(app, currentPageContent) {
+    console.log("Running activitiesInProgress script...");
+
     return await this.insertActivitiesIntoDailyNote(
       currentPageContent,
       await this.filterActivities(app)
