@@ -51,6 +51,8 @@ class mentionsProcessor {
 
     // Helper function to check if a line is new
     function isLineNew(normalizedLine, normalizedCurrentLines) {
+      // Treat empty lines as new to preserve them
+      if (normalizedLine === "") return true;
       return !normalizedCurrentLines.includes(normalizedLine);
     }
 
