@@ -18,6 +18,8 @@ class mentionsProcessor {
         !currentPageContent.includes(tagId) // Exclude blocks from the current page
     );
 
+    if (mentionBlocks) console.log("mentionBlocks:", mentionBlocks);
+
     //console.log("Step 3: Open the current note\n");
     let currentLines = [];
     if (currentPageContent && currentPageContent.trim().length > 0)

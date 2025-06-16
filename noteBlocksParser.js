@@ -137,7 +137,11 @@ class noteBlocksParser {
         }
         currentBlock = this.createBlock(page, "mention", [line]); // Start a new block
         emptyLineCount = 0; // Reset empty line count
-      } else if (this.isTodoLine(line) && currentBlock.blockType !== "header") {
+      } else if (
+        this.isTodoLine(line) &&
+        currentBlock &&
+        currentBlock.blockType !== "header"
+      ) {
         // When meet the - [ ] line
         // Check if the line is a todo line
 
@@ -167,8 +171,13 @@ class noteBlocksParser {
         this.addBlock(blocks, currentBlock);
         currentBlock = null;
         emptyLineCount = 0; // Reset empty line count
-      } else if (this.isDoneLine(line)) {
+      } else if (
+        this.isDoneLine(line) &&
+        currentBlock &&
+        currentBlock.blockType !== "header"
+      ) {
         if (currentBlock && currentBlock.blockType == "header") continue;
+
         if (line.trim().startsWith(">")) {
           line = line.trim().substring(1).trim();
         }
