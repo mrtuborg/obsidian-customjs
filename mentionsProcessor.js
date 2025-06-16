@@ -53,6 +53,8 @@ class mentionsProcessor {
     }
 
     // Main processing logic
+    let addedMentionLines = new Set();
+
     mentionBlocks.forEach((mention) => {
       let mentionData = mention.data;
       let mentionPageLink = mention.page;
@@ -69,8 +71,18 @@ class mentionsProcessor {
 
         mentionLines.forEach((line) => {
           const normalizedLine = normalizeLine(line, tagId);
-          if (isLineNew(normalizedLine, normalizedCurrentLines)) {
+          if (
+            isLineNew(normalizedLine, normalizedCurrentLines) &&
+            !addedMentionLines.has(normalizedLine)
+          ) {
+            console.log(
+              `New mention found: ${normalizedLine} in ${mentionPageLink}`
+            );
             isMentionDataNew = true;
+          } else {
+            console.log(
+              `Existing mention found: ${normalizedLine} in ${mentionPageLink}`
+            );
           }
         });
 
@@ -78,9 +90,25 @@ class mentionsProcessor {
           if (!mentionBlocksBySource[linkPart]) {
             mentionBlocksBySource[linkPart] = [];
           }
-          mentionBlocksBySource[linkPart].push(
-            mentionData.replace(/\[\[.*?\]\]/g, "")
-          );
+          // Filter mentionLines to only include new lines not in addedMentionLines
+          const filteredNewLines = mentionLines.filter((line) => {
+            const normalizedLine = normalizeLine(line, tagId);
+            return (
+              isLineNew(normalizedLine, normalizedCurrentLines) &&
+              !addedMentionLines.has(normalizedLine)
+            );
+          });
+          if (filteredNewLines.length > 0) {
+            const filteredMentionData = filteredNewLines
+              .join("\n")
+              .replace(/\[\[.*?\]\]/g, "");
+            mentionBlocksBySource[linkPart].push(filteredMentionData);
+            // Add normalized lines to the set to avoid duplicates
+            filteredNewLines.forEach((line) => {
+              const normalizedLine = normalizeLine(line, tagId);
+              addedMentionLines.add(normalizedLine);
+            });
+          }
         }
       }
     });
