@@ -74,7 +74,7 @@ class noteBlocksParser {
         } else {
           // But we still to finalize currentBlock if it was header with lower header level than now
           // Add the previously collected block if the new header level is greater than to the current header level
-          if (newHeaderLevel > currentHeaderLevel) {
+          if (newHeaderLevel <= currentHeaderLevel) {
             this.addBlock(blocks, currentBlock);
             currentBlock = null;
             currentBlock = this.createBlock(
