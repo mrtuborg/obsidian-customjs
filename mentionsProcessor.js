@@ -45,7 +45,7 @@ class mentionsProcessor {
     function normalizeLine(line, tagId) {
       return line
         .replace(tagId, "")
-        .replace(/\[\[.*?\]\]/g, "")
+        .replace(/(?<!\!)\[\[.*?\]\]/g, "")
         .trim();
     }
 
@@ -105,7 +105,7 @@ class mentionsProcessor {
           if (filteredNewLines.length > 0) {
             const filteredMentionData = filteredNewLines
               .join("\n")
-              .replace(/\[\[.*?\]\]/g, "");
+              .replace(/(?<!\!)\[\[.*?\]\]/g, "");
             mentionBlocksBySource[linkPart].push(filteredMentionData);
             // Add normalized lines to the set to avoid duplicates
             filteredNewLines.forEach((line) => {

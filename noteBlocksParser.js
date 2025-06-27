@@ -264,7 +264,8 @@ class noteBlocksParser {
   }
 
   isMention(line) {
-    return /\[\[.*?\]\]/.test(line);
+    // Check if line contains [[...]] but exclude embedded files that start with ![[
+    return /\[\[.*?\]\]/.test(line) && !line.trim().startsWith("![[");
   }
 
   isTodoLine(line) {
