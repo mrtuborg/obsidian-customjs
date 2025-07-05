@@ -47,6 +47,7 @@ class attributesProcessor {
     // );
     const lines = bodyContent.split("\n");
     let inCodeBlock = false;
+    let processedContent = bodyContent;
 
     lines.forEach((line) => {
       //console.log(
@@ -68,17 +69,28 @@ class attributesProcessor {
           // Define the possible operations
           const operations = ["=", "+=", "-=", ":"];
 
-          // Find the operation in the expression
-          const operation = operations.find((op) => expression.includes(op));
-          // console.log("attributesProcessor: Found operation:", operation);
+          // Find the operation in the expression (check longer operations first)
+          const operations_sorted = ["-=", "+=", "=", ":"];
+          const operation = operations_sorted.find((op) =>
+            expression.includes(op)
+          );
+          console.log("attributesProcessor: Found operation:", operation);
 
           let attributeName;
           let value;
           if (operation) {
             // Split the expression based on the operation
-            [attributeName, value] = expression
-              .split(operation)
-              .map((str) => str.trim());
+            const operationIndex = expression.indexOf(operation);
+            attributeName = expression.substring(0, operationIndex).trim();
+            value = expression
+              .substring(operationIndex + operation.length)
+              .trim();
+            console.log(
+              "attributesProcessor: attributeName:",
+              attributeName,
+              "value:",
+              value
+            );
             // console.log(
             //   "attributesProcessor: attributeName:",
             //   attributeName,
@@ -122,15 +134,45 @@ class attributesProcessor {
                 attributeValue = value;
                 break;
               case "+=":
-                attributeValue = attributeValue
-                  ? `${attributeValue},${value}`
-                  : value;
+                // Special handling for date fields
+                if (attributeName === "startDate" && attributeValue) {
+                  console.log(
+                    "attributesProcessor: Adding to date:",
+                    attributeValue,
+                    "+",
+                    value
+                  );
+                  attributeValue = this.addToDate(attributeValue, value);
+                  console.log(
+                    "attributesProcessor: New date after addition:",
+                    attributeValue
+                  );
+                } else {
+                  attributeValue = attributeValue
+                    ? `${attributeValue},${value}`
+                    : value;
+                }
                 break;
               case "-=":
-                attributeValue = attributeValue
-                  .split(",")
-                  .filter((v) => v !== value)
-                  .join(",");
+                // Special handling for date fields
+                if (attributeName === "startDate" && attributeValue) {
+                  console.log(
+                    "attributesProcessor: Subtracting from date:",
+                    attributeValue,
+                    "-",
+                    value
+                  );
+                  attributeValue = this.subtractFromDate(attributeValue, value);
+                  console.log(
+                    "attributesProcessor: New date after subtraction:",
+                    attributeValue
+                  );
+                } else {
+                  attributeValue = attributeValue
+                    .split(",")
+                    .filter((v) => v !== value)
+                    .join(",");
+                }
                 break;
             }
           }
@@ -139,6 +181,20 @@ class attributesProcessor {
             attributeValue
           );
           frontmatter[attributeName] = attributeValue;
+
+          // Convert the processed directive from {command} to (command)
+          const originalDirective = `{${expression}}`;
+          const processedDirective = `(${expression})`;
+          processedContent = processedContent.replace(
+            originalDirective,
+            processedDirective
+          );
+          console.log(
+            "attributesProcessor: Converted directive:",
+            originalDirective,
+            "->",
+            processedDirective
+          );
         }
       }
     });
@@ -152,7 +208,88 @@ class attributesProcessor {
     }
     frontmatterString += "---\n";
 
-    //await this.saveFile(page.path, frontmatterString + "\n" + bodyContent);
+    // Return the processed content with directives converted to comments
+    return processedContent;
+  }
+
+  // Helper method to add time to a date
+  addToDate(dateString, value) {
+    // Handle both string dates and moment objects
+    const date = moment(dateString);
+    if (!date.isValid()) {
+      console.error("Invalid date format:", dateString);
+      return dateString;
+    }
+
+    // Parse the value (e.g., "1d", "2w", "3m")
+    const match = value.match(/^(\d+)([dwmy])$/);
+    if (!match) {
+      console.error("Invalid date increment format:", value);
+      return dateString;
+    }
+
+    const amount = parseInt(match[1]);
+    const unit = match[2];
+
+    switch (unit) {
+      case "d": // days
+        date.add(amount, "days");
+        break;
+      case "w": // weeks
+        date.add(amount, "weeks");
+        break;
+      case "m": // months
+        date.add(amount, "months");
+        break;
+      case "y": // years
+        date.add(amount, "years");
+        break;
+      default:
+        console.error("Unknown date unit:", unit);
+        return dateString;
+    }
+
+    return date.format("YYYY-MM-DD");
+  }
+
+  // Helper method to subtract time from a date
+  subtractFromDate(dateString, value) {
+    // Handle both string dates and moment objects
+    const date = moment(dateString);
+    if (!date.isValid()) {
+      console.error("Invalid date format:", dateString);
+      return dateString;
+    }
+
+    // Parse the value (e.g., "1d", "2w", "3m")
+    const match = value.match(/^(\d+)([dwmy])$/);
+    if (!match) {
+      console.error("Invalid date decrement format:", value);
+      return dateString;
+    }
+
+    const amount = parseInt(match[1]);
+    const unit = match[2];
+
+    switch (unit) {
+      case "d": // days
+        date.subtract(amount, "days");
+        break;
+      case "w": // weeks
+        date.subtract(amount, "weeks");
+        break;
+      case "m": // months
+        date.subtract(amount, "months");
+        break;
+      case "y": // years
+        date.subtract(amount, "years");
+        break;
+      default:
+        console.error("Unknown date unit:", unit);
+        return dateString;
+    }
+
+    return date.format("YYYY-MM-DD");
   }
 
   // This function is the main entry point for the script

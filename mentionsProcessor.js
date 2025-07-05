@@ -7,7 +7,8 @@ class mentionsProcessor {
   // to update the mentions based on the specified operations.
   // Mentions are defined within double curly braces {} in the markdown file
 
-  async processMentions(currentPageContent, blocks, tagId) {
+  async processMentions(currentPageContent, blocks, tagId, frontmatterObj) {
+    this.frontmatterObj = frontmatterObj;
     // This is async operation
     let mentionBlocks = blocks.filter(
       (item) =>
@@ -47,6 +48,181 @@ class mentionsProcessor {
         .replace(tagId, "")
         .replace(/(?<!\!)\[\[.*?\]\]/g, "")
         .trim();
+    }
+
+    // Helper function to convert directives when copying from other files
+    function processDirectiveLine(
+      line,
+      sourceFileName,
+      currentPageContent,
+      frontmatterObj
+    ) {
+      // Convert {command} to (command from filename) when copying from other files
+      const directiveRegex = /\{([^}]+)\}/g;
+      let processedLine = line.replace(directiveRegex, (match, directive) => {
+        const processedDirective = `(${directive} from ${sourceFileName})`;
+        // Check if current page already has this exact directive from this file
+        if (currentPageContent.includes(processedDirective)) {
+          console.log(
+            `Skipping directive ${match} from ${sourceFileName} - already copied from this file`
+          );
+          return null; // Mark for removal
+        }
+
+        // Process the directive immediately before converting to comment
+        console.log(
+          `Processing directive from ${sourceFileName}: ${directive}`
+        );
+        processDirective(directive, frontmatterObj);
+
+        console.log(`Converting directive: ${match} -> ${processedDirective}`);
+        return processedDirective;
+      });
+
+      // If any directive was marked for removal (null), skip this line
+      if (processedLine && processedLine.includes("null")) {
+        return null;
+      }
+
+      return processedLine;
+    }
+
+    // Helper function to process a single directive
+    function processDirective(directive, frontmatterObj) {
+      // Parse the directive (same logic as attributesProcessor)
+      const operations_sorted = ["-=", "+=", "=", ":"];
+      const operation = operations_sorted.find((op) => directive.includes(op));
+
+      if (!operation) return;
+
+      const operationIndex = directive.indexOf(operation);
+      const attributeName = directive.substring(0, operationIndex).trim();
+      const value = directive
+        .substring(operationIndex + operation.length)
+        .trim();
+
+      let attributeValue = frontmatterObj[attributeName];
+
+      // Check if the value is numeric
+      const isNumeric = !isNaN(value) && !isNaN(parseFloat(value));
+
+      if (isNumeric && operation != ":") {
+        // Handle numeric operations
+        const numericValue = parseFloat(value);
+        attributeValue = parseFloat(attributeValue) || 0;
+        switch (operation) {
+          case "=":
+            attributeValue = numericValue;
+            break;
+          case "+=":
+            attributeValue += numericValue;
+            break;
+          case "-=":
+            attributeValue -= numericValue;
+            break;
+        }
+      } else {
+        // Handle string operations
+        switch (operation) {
+          case ":":
+            attributeValue = value;
+            break;
+          case "+=":
+            // Special handling for date fields
+            if (attributeName === "startDate" && attributeValue) {
+              attributeValue = addToDate(attributeValue, value);
+            } else {
+              attributeValue = attributeValue
+                ? `${attributeValue},${value}`
+                : value;
+            }
+            break;
+          case "-=":
+            // Special handling for date fields
+            if (attributeName === "startDate" && attributeValue) {
+              attributeValue = subtractFromDate(attributeValue, value);
+            } else {
+              attributeValue = attributeValue
+                .split(",")
+                .filter((v) => v !== value)
+                .join(",");
+            }
+            break;
+        }
+      }
+
+      console.log(
+        `mentionsProcessor: Setting frontmatter[${attributeName}] =`,
+        attributeValue
+      );
+      frontmatterObj[attributeName] = attributeValue;
+    }
+
+    // Helper functions for date arithmetic (copied from attributesProcessor)
+    function addToDate(dateString, value) {
+      const date = moment(dateString);
+      if (!date.isValid()) {
+        console.error("Invalid date format:", dateString);
+        return dateString;
+      }
+      const match = value.match(/^(\d+)([dwmy])$/);
+      if (!match) {
+        console.error("Invalid date increment format:", value);
+        return dateString;
+      }
+      const amount = parseInt(match[1]);
+      const unit = match[2];
+      switch (unit) {
+        case "d":
+          date.add(amount, "days");
+          break;
+        case "w":
+          date.add(amount, "weeks");
+          break;
+        case "m":
+          date.add(amount, "months");
+          break;
+        case "y":
+          date.add(amount, "years");
+          break;
+        default:
+          console.error("Unknown date unit:", unit);
+          return dateString;
+      }
+      return date.format("YYYY-MM-DD");
+    }
+
+    function subtractFromDate(dateString, value) {
+      const date = moment(dateString);
+      if (!date.isValid()) {
+        console.error("Invalid date format:", dateString);
+        return dateString;
+      }
+      const match = value.match(/^(\d+)([dwmy])$/);
+      if (!match) {
+        console.error("Invalid date decrement format:", value);
+        return dateString;
+      }
+      const amount = parseInt(match[1]);
+      const unit = match[2];
+      switch (unit) {
+        case "d":
+          date.subtract(amount, "days");
+          break;
+        case "w":
+          date.subtract(amount, "weeks");
+          break;
+        case "m":
+          date.subtract(amount, "months");
+          break;
+        case "y":
+          date.subtract(amount, "years");
+          break;
+        default:
+          console.error("Unknown date unit:", unit);
+          return dateString;
+      }
+      return date.format("YYYY-MM-DD");
     }
 
     // Helper function to check if a line is new
@@ -103,15 +279,29 @@ class mentionsProcessor {
             );
           });
           if (filteredNewLines.length > 0) {
-            const filteredMentionData = filteredNewLines
-              .join("\n")
-              .replace(/(?<!\!)\[\[.*?\]\]/g, "");
-            mentionBlocksBySource[linkPart].push(filteredMentionData);
-            // Add normalized lines to the set to avoid duplicates
-            filteredNewLines.forEach((line) => {
-              const normalizedLine = normalizeLine(line, tagId);
-              addedMentionLines.add(normalizedLine);
-            });
+            // Process directives in the filtered lines
+            const processedLines = filteredNewLines
+              .map((line) =>
+                processDirectiveLine(
+                  line,
+                  linkPart,
+                  currentPageContent,
+                  this.frontmatterObj
+                )
+              )
+              .filter((line) => line !== null); // Remove lines marked for removal
+
+            if (processedLines.length > 0) {
+              const filteredMentionData = processedLines
+                .join("\n")
+                .replace(/(?<!\!)\[\[.*?\]\]/g, "");
+              mentionBlocksBySource[linkPart].push(filteredMentionData);
+              // Add normalized lines to the set to avoid duplicates
+              processedLines.forEach((line) => {
+                const normalizedLine = normalizeLine(line, tagId);
+                addedMentionLines.add(normalizedLine);
+              });
+            }
           }
         }
       }
@@ -154,11 +344,12 @@ class mentionsProcessor {
     return newContent;
   }
 
-  async run(currentPageContent, collectedBlocks, mentionStr) {
+  async run(currentPageContent, collectedBlocks, mentionStr, frontmatterObj) {
     return await this.processMentions(
       currentPageContent,
       collectedBlocks,
-      mentionStr
+      mentionStr,
+      frontmatterObj
     );
   }
 }
