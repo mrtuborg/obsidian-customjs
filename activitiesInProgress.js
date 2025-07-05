@@ -65,7 +65,6 @@ class activitiesInProgress {
       console.warn(`No content found for file: ${filePath}`);
       return [];
     }
-    console.log(`Analyzing file: ${filePath}`);
 
     if (fileContent.length === 0) {
       console.warn(`File is empty: ${filePath}`);
@@ -78,9 +77,33 @@ class activitiesInProgress {
       .filter((line) => line.trim() !== "");
 
     // Extract lines that start with '- [ ]' or '- [x]'
-    const todoLines = lines.filter(
+    const allTodoLines = lines.filter(
       (line) => line.startsWith("- [ ]") || line.startsWith("- [x]")
     );
+
+    // Extract task names from completed todos (- [x])
+    const completedTaskNames = new Set();
+    allTodoLines.forEach((line) => {
+      if (line.startsWith("- [x]")) {
+        // Extract task name by removing "- [x] " prefix
+        const taskName = line.substring(6).trim();
+        completedTaskNames.add(taskName);
+      }
+    });
+
+    // Filter out any task (both incomplete and complete) if it has a completed version
+    const todoLines = allTodoLines.filter((line) => {
+      let taskName;
+      if (line.startsWith("- [ ]")) {
+        taskName = line.substring(6).trim();
+      } else if (line.startsWith("- [x]")) {
+        taskName = line.substring(6).trim();
+      }
+
+      // Exclude this line if the task name exists in completed tasks
+      return !completedTaskNames.has(taskName);
+    });
+
     return todoLines;
   }
 
@@ -108,8 +131,7 @@ class activitiesInProgress {
         let activityToDos = await this.analyzeActivityFileContentForTodos(
           activity.path
         );
-        if (activityToDos.length > 0)
-          console.log("Found todos:", activityToDos);
+
         if (activityToDos.length > 0) {
           return [
             `##### [[${activity.path}|${filename}]]`,

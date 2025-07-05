@@ -41,10 +41,18 @@ class attributesProcessor {
   // - ":": Set the attribute to a specific string value
 
   async processAttributes(frontmatter, bodyContent) {
+    // console.log(
+    //   "attributesProcessor: Processing content:",
+    //   JSON.stringify(bodyContent)
+    // );
     const lines = bodyContent.split("\n");
     let inCodeBlock = false;
 
     lines.forEach((line) => {
+      //console.log(
+      //  "attributesProcessor: Processing line:",
+      //  JSON.stringify(line)
+      //);
       if (line.trim().startsWith("```")) {
         inCodeBlock = !inCodeBlock;
       }
@@ -55,12 +63,14 @@ class attributesProcessor {
 
         if (startIdx !== -1 && endIdx !== -1) {
           const expression = line.slice(startIdx + 1, endIdx).trim();
+          // console.log("attributesProcessor: Found expression:", expression);
           // Find the operation
           // Define the possible operations
           const operations = ["=", "+=", "-=", ":"];
 
           // Find the operation in the expression
           const operation = operations.find((op) => expression.includes(op));
+          // console.log("attributesProcessor: Found operation:", operation);
 
           let attributeName;
           let value;
@@ -69,6 +79,12 @@ class attributesProcessor {
             [attributeName, value] = expression
               .split(operation)
               .map((str) => str.trim());
+            // console.log(
+            //   "attributesProcessor: attributeName:",
+            //   attributeName,
+            //   "value:",
+            //   value
+            // );
           }
           let attributeValue = frontmatter[attributeName];
 
@@ -79,6 +95,10 @@ class attributesProcessor {
 
           // Check if the value is numeric
           const isNumeric = !isNaN(value) && !isNaN(parseFloat(value));
+          // console.log(
+          //   "attributesProcessor: isNumeric check for value '" + value + "':",
+          //   isNumeric
+          // );
 
           if (isNumeric && operation != ":") {
             // Handle numeric operations
@@ -114,6 +134,10 @@ class attributesProcessor {
                 break;
             }
           }
+          console.log(
+            "attributesProcessor: Setting frontmatter[" + attributeName + "] =",
+            attributeValue
+          );
           frontmatter[attributeName] = attributeValue;
         }
       }

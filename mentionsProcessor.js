@@ -18,7 +18,7 @@ class mentionsProcessor {
         !currentPageContent.includes(tagId) // Exclude blocks from the current page
     );
 
-    if (mentionBlocks) console.log("mentionBlocks:", mentionBlocks);
+    // if (mentionBlocks) console.log("mentionBlocks:", mentionBlocks);
 
     //console.log("Step 3: Open the current note\n");
     let currentLines = [];
@@ -145,7 +145,7 @@ class mentionsProcessor {
     if (newContent.length === 0) return "";
     newContent.push("\n----");
 
-    console.log("mentionProcessor:", newContent);
+    // console.log("mentionProcessor:", newContent);
 
     // Insert the new mention blocks
     currentLines.splice(insertIndex, 0, ...newContent);
