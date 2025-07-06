@@ -58,15 +58,38 @@ class dailyNoteComposer {
 
       // Todo Rollover (only for today's note)
       if (pageIsToday) {
-        const remove = true;
-        const todos = await todoRollover.run(
-          app,
-          allBlocks,
-          dailyNoteDate,
-          pageContent,
-          remove
-        );
-        pageContent += "" + todos;
+        try {
+          const remove = true;
+          console.log("Starting todo rollover for:", dailyNoteDate);
+          console.log("Total blocks found:", allBlocks.length);
+          console.log(
+            "Todo blocks:",
+            allBlocks.filter((b) => b.blockType === "todo").length
+          );
+
+          const todos = await todoRollover.run(
+            app,
+            allBlocks,
+            dailyNoteDate,
+            pageContent,
+            remove
+          );
+
+          console.log(
+            "Todo rollover result:",
+            typeof todos,
+            todos ? todos.length : 0
+          );
+
+          if (todos && typeof todos === "string" && todos.trim().length > 0) {
+            pageContent = todos; // FIXED: Direct assignment instead of concatenation
+            console.log("Todo rollover completed successfully");
+          } else {
+            console.log("No todos to rollover or empty result");
+          }
+        } catch (error) {
+          console.error("Todo rollover failed:", error);
+        }
       }
 
       // Add activities in progress (only for today's note)

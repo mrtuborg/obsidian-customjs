@@ -56,9 +56,9 @@ class fileIO {
 
   // This function checks file name against current date
   isDailyNote(fileName) {
-    const currentDate = new Date();
-    const formattedDate = currentDate.toISOString().split("T")[0];
-    return fileName === formattedDate;
+    const today = moment().format("YYYY-MM-DD");
+    console.log("Checking isDailyNote:", fileName, "vs today:", today);
+    return fileName === today;
   }
 
   todayDate() {

@@ -137,55 +137,42 @@ class noteBlocksParser {
         }
         currentBlock = this.createBlock(page, "mention", [line]); // Start a new block
         emptyLineCount = 0; // Reset empty line count
-      } else if (
-        this.isTodoLine(line) &&
-        currentBlock &&
-        currentBlock.blockType !== "header"
-      ) {
+      } else if (this.isTodoLine(line)) {
         // When meet the - [ ] line
         // Check if the line is a todo line
 
-        // Current block is a collection of lines
-
-        // Ignore todo block inside header
-        if (currentBlock && currentBlock.blockType == "header") continue;
+        // If we're inside a header, add to header but also create separate todo block
+        if (currentBlock && currentBlock.blockType == "header") {
+          currentBlock.content.push(line);
+        }
 
         // Remove the '>' symbol if it exists
-        if (line.trim().startsWith(">")) {
-          line = line.trim().substring(1).trim();
+        let todoLine = line;
+        if (todoLine.trim().startsWith(">")) {
+          todoLine = todoLine.trim().substring(1).trim();
         }
 
-        //if (!currentBlock || (currentBlock && currentBlock.blockType !== 'todo')) { // If the current block is not a todoLines block already
-        // Add the previously collected block before starting a new one
-        if (currentBlock) {
-          // If collection is not empty -
-          // Add the previously collected block before starting a new one
-          this.addBlock(blocks, currentBlock);
-          currentBlock = null;
-        }
+        // Always create a separate todo block regardless of current block
+        const todoBlock = this.createBlock(page, "todo", [todoLine]);
+        this.addBlock(blocks, todoBlock);
 
-        // If current block is empty -
-        // Initialize a new block "todo" with the current line
-        // Todo is always a single line
-        currentBlock = this.createBlock(page, "todo", [line]);
-        this.addBlock(blocks, currentBlock);
-        currentBlock = null;
         emptyLineCount = 0; // Reset empty line count
-      } else if (
-        this.isDoneLine(line) &&
-        currentBlock &&
-        currentBlock.blockType !== "header"
-      ) {
-        if (currentBlock && currentBlock.blockType == "header") continue;
+      } else if (this.isDoneLine(line)) {
+        // If we're inside a header, add to header but also create separate done block
+        if (currentBlock && currentBlock.blockType == "header") {
+          currentBlock.content.push(line);
+        }
 
-        if (line.trim().startsWith(">")) {
-          line = line.trim().substring(1).trim();
+        // Remove the '>' symbol if it exists
+        let doneLine = line;
+        if (doneLine.trim().startsWith(">")) {
+          doneLine = doneLine.trim().substring(1).trim();
         }
-        if (currentBlock) {
-          this.addBlock(blocks, currentBlock);
-          currentBlock = null;
-        }
-        currentBlock = this.createBlock(page, "done", [line]);
+
+        // Always create a separate done block regardless of current block
+        const doneBlock = this.createBlock(page, "done", [doneLine]);
+        this.addBlock(blocks, doneBlock);
+
         emptyLineCount = 0; // Reset empty line count
         // Looking for the end of header block
       } else if (line.trim() === "") {
@@ -313,28 +300,53 @@ class noteBlocksParser {
   async run(app, pages, namePattern = "") {
     let allBlocks = [];
 
-    //console.log("Starting to process pages...");
-    //console.log("Name pattern:", namePattern);
+    console.log("NoteBlocksParser: Starting to process pages...");
+    console.log("NoteBlocksParser: Name pattern:", namePattern);
+    console.log("NoteBlocksParser: Total pages to process:", pages.length);
 
     for (const page of pages) {
       // If a namePattern is provided, check if the page name includes the pattern
       if (namePattern && !moment(page.file.name, namePattern, true).isValid()) {
         console.log(
-          "Skipping file (does not match date format):",
+          "NoteBlocksParser: Skipping file (does not match date format):",
           page.file.name
         );
         continue;
       }
 
+      console.log("NoteBlocksParser: Processing page:", page.file.name);
       const content = await this.loadFile(app, page.file.path);
       const blocks = this.parse(page.file.path, content);
+
+      console.log(
+        "NoteBlocksParser: Found",
+        blocks.length,
+        "blocks in",
+        page.file.name
+      );
+      console.log(
+        "NoteBlocksParser: Block types:",
+        blocks.map((b) => b.blockType)
+      );
+
       blocks.forEach((block) => {
         block.page = page.file.path;
         allBlocks.push(block);
       });
     }
 
-    //console.log("Finished processing pages. Parsed blocks:", allBlocks);
+    console.log(
+      "NoteBlocksParser: Finished processing pages. Total parsed blocks:",
+      allBlocks.length
+    );
+    console.log(
+      "NoteBlocksParser: Block type summary:",
+      allBlocks.reduce((acc, block) => {
+        acc[block.blockType] = (acc[block.blockType] || 0) + 1;
+        return acc;
+      }, {})
+    );
+
     return allBlocks;
   }
 }

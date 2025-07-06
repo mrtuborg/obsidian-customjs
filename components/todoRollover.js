@@ -83,6 +83,23 @@ class todoRollover {
     If current "daily note" (curDate - processingDate - offset > next) and is not completed, move to-do item with mentioning, adding { offset=`curDate` - `processingDate` - `next`}
 
 */
+  /**
+   * Check if a todo is related to an activity (should NOT be rolled over)
+   * Activity todos are those that appear under headers with [[Activity/...]] links
+   */
+  isActivityRelatedTodo(todoData) {
+    // Check if the todo data contains activity-related patterns
+    const activityPatterns = [
+      /\[\[Activities\//, // [[Activities/...]]
+      /\[\[MyObsidian\]\]/, // [[MyObsidian]]
+      /##### \[\[Activities\//, // ##### [[Activities/...]]
+      /##### \[\[MyObsidian/, // ##### [[MyObsidian...]]
+    ];
+
+    // If the todo itself contains activity references, it's activity-related
+    return activityPatterns.some((pattern) => pattern.test(todoData));
+  }
+
   processRecurrence(todoLine, noteDate) {
     // it contain mention to [[Review/Daily]], [[Review/Weekly]], [[Review/Monthly]]
     const daily = todoLine.includes("[[Review/Daily");
@@ -113,33 +130,60 @@ class todoRollover {
     currentPageContent,
     removeOriginals
   ) {
-    /* Not sure if this block is still needed
-        const waitForCurrent = async (timeout) => {
-            const interval = 100; // Check every 100ms
-            const maxAttempts = timeout / interval;
-            let attempts = 0;
+    console.log("TodoRollover: Starting rollover process");
+    console.log("TodoRollover: Today's date:", todayDate);
+    console.log("TodoRollover: Total blocks received:", blocks.length);
+    console.log(
+      "TodoRollover: Current page content length:",
+      currentPageContent.length
+    );
 
-            while (!dv.current() && attempts < maxAttempts) {
-                await new Promise(resolve => setTimeout(resolve, interval));
-                attempts++;
-            }
-
-            return dv.current();
-        };
-        const current = await waitForCurrent(5000); // Wait up to 5 seconds
-        if (!current) return;
-        */
-
-    // Filter out blocks from future dates
+    // Filter out blocks from future dates AND exclude activity-related todos
     let todoBlocks = blocks.filter((item) => {
-      const blockDate = moment(item.page, "YYYY-MM-DD");
-      return item.blockType === "todo" && blockDate.isBefore(todayDate);
+      // Extract date from file path (e.g., "Journal/2025/07.July/2025-07-05.md" -> "2025-07-05")
+      const dateMatch = item.page.match(/(\d{4}-\d{2}-\d{2})/);
+      if (!dateMatch) {
+        console.log(
+          "TodoRollover: Could not extract date from path:",
+          item.page
+        );
+        return false;
+      }
+
+      const blockDate = moment(dateMatch[1], "YYYY-MM-DD");
+      const isBeforeToday = blockDate.isBefore(todayDate);
+      const isTodo = item.blockType === "todo";
+
+      // CRITICAL: Only include standalone todos, NOT activity todos
+      const isActivityTodo = this.isActivityRelatedTodo(item.data);
+
+      if (isTodo) {
+        console.log(
+          "TodoRollover: Found todo block from",
+          item.page,
+          "- extracted date:",
+          dateMatch[1],
+          "- before today:",
+          isBeforeToday,
+          "- is activity todo:",
+          isActivityTodo
+        );
+      }
+
+      return isTodo && isBeforeToday && !isActivityTodo;
     });
 
     let doneBlocks = blocks.filter((item) => {
-      const blockDate = moment(item.page, "YYYY-MM-DD");
+      // Extract date from file path
+      const dateMatch = item.page.match(/(\d{4}-\d{2}-\d{2})/);
+      if (!dateMatch) return false;
+
+      const blockDate = moment(dateMatch[1], "YYYY-MM-DD");
       return item.blockType === "done" && blockDate.isBefore(todayDate);
     });
+
+    console.log("TodoRollover: Filtered todo blocks:", todoBlocks.length);
+    console.log("TodoRollover: Filtered done blocks:", doneBlocks.length);
 
     let currentLines = [];
 
@@ -218,10 +262,19 @@ class todoRollover {
 
     if (newTodos.length === 0) return currentPageContent;
 
-    currentLines
-      .splice(insertIndex, 0, ...filteredTodos.map((todo) => todo.line))
-      .filter((line) => line.trim().length > 0);
+    // Insert todos at the correct position
+    const todosToInsert = filteredTodos.map((todo) => todo.line);
+    console.log("TodoRollover: Inserting todos at index:", insertIndex);
+    console.log("TodoRollover: Todos to insert:", todosToInsert);
+
+    currentLines.splice(insertIndex, 0, ...todosToInsert);
     newContent = currentLines.join("\n");
+
+    console.log("TodoRollover: New content length:", newContent.length);
+    console.log(
+      "TodoRollover: New content preview:",
+      newContent.substring(0, 300) + "..."
+    );
 
     if (removeOriginals) this.removeTodosFromOriginalPages(app, filteredTodos);
     return newContent;
