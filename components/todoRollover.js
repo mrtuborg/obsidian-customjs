@@ -86,76 +86,54 @@ class todoRollover {
   /**
    * Check if a todo is related to an activity (should NOT be rolled over)
    * Activity todos are those that appear under headers with [[Activity/...]] links
+   * Based on noteBlocksParser logic: header blocks end on next header, --- separator, or 2 empty lines
    */
-  async isActivityRelatedTodo(app, todoBlock, allBlocks) {
-    // First check if the todo itself contains activity references
+  isActivityRelatedTodo(todoBlock, allBlocks) {
+    // First check if the todo itself contains activity or link references
     const activityPatterns = [
       /\[\[Activities\//, // [[Activities/...]]
       /\[\[MyObsidian\]\]/, // [[MyObsidian]]
-      /##### \[\[Activities\//, // ##### [[Activities/...]]
-      /##### \[\[MyObsidian/, // ##### [[MyObsidian...]]
+      /\[\[.*?\]\]/, // Any [[link]] in the todo line itself
     ];
 
     if (activityPatterns.some((pattern) => pattern.test(todoBlock.data))) {
+      console.log(
+        "TodoRollover: Todo contains activity/link reference:",
+        todoBlock.data
+      );
       return true;
     }
 
-    // Load the file content to check context
-    const fileContent = await this.loadFile(app, todoBlock.page);
-    if (!fileContent) return false;
+    // Find activity header blocks in the same page
+    const samePageActivityHeaders = allBlocks.filter(
+      (block) =>
+        block.page === todoBlock.page &&
+        block.blockType === "header" &&
+        block.headerLevel === 5 && // Level 5 headers (##### )
+        (block.data.includes("[[Activities/") ||
+          block.data.includes("[[MyObsidian"))
+    );
 
-    const lines = fileContent.split("\n");
-
-    // Find the line number where this todo appears
-    let todoLineIndex = -1;
-    const todoText = todoBlock.data.trim();
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      // Remove callout markers and normalize
-      const normalizedLine = line.replace(/^>\s*/, "").trim();
-      if (normalizedLine === todoText) {
-        todoLineIndex = i;
-        break;
-      }
+    // If no activity headers in this page, todo is standalone
+    if (samePageActivityHeaders.length === 0) {
+      return false;
     }
 
-    if (todoLineIndex === -1) return false;
-
-    // Look backwards from the todo line to find the most recent activity header
-    for (let i = todoLineIndex - 1; i >= 0; i--) {
-      const line = lines[i].trim();
-
-      // If we hit a separator (----) or another header level, check what we found
-      if (line === "----" || line === "---") {
-        continue; // Skip separators, keep looking
-      }
-
-      // Check for activity headers (level 5: #####)
-      if (line.match(/^#{5}\s+\[\[Activities\//)) {
-        console.log("TodoRollover: Found activity header for todo:", line);
-        return true; // This todo is under an activity header
-      }
-
-      // Check for MyObsidian activity headers
-      if (
-        line.match(/^#{5}\s+\[\[Activities\/MyObsidian/) ||
-        line.includes("[[MyObsidian]]")
-      ) {
+    // Check if this todo is mentioned within any activity header block
+    for (const headerBlock of samePageActivityHeaders) {
+      if (headerBlock.data.includes(todoBlock.data.trim())) {
         console.log(
-          "TodoRollover: Found MyObsidian activity header for todo:",
-          line
+          "TodoRollover: Todo found within activity header block:",
+          headerBlock.data.split("\n")[0]
         );
-        return true; // This todo is under MyObsidian activity
-      }
-
-      // If we hit a different header level (1-4), we've gone too far
-      if (line.match(/^#{1,4}\s+/)) {
-        break; // Stop looking, we're in a different section
+        return true;
       }
     }
 
-    return false; // No activity header found above this todo
+    console.log(
+      "TodoRollover: Todo is standalone (not within activity blocks)"
+    );
+    return false; // Todo is not within any activity header block
   }
 
   processRecurrence(todoLine, noteDate) {
@@ -219,11 +197,7 @@ class todoRollover {
       }
 
       // CRITICAL: Only include standalone todos, NOT activity todos
-      const isActivityTodo = await this.isActivityRelatedTodo(
-        app,
-        item,
-        blocks
-      );
+      const isActivityTodo = this.isActivityRelatedTodo(item, blocks);
 
       console.log(
         "TodoRollover: Found todo block from",
