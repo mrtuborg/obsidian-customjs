@@ -55,8 +55,14 @@ class mentionsProcessor {
       line,
       sourceFileName,
       currentPageContent,
-      frontmatterObj
+      frontmatterObj,
+      isCodeBlock = false
     ) {
+      // Skip directive processing for code blocks (especially DataviewJS)
+      if (isCodeBlock) {
+        return line;
+      }
+
       // Convert {command} to (command from filename) when copying from other files
       const directiveRegex = /\{([^}]+)\}/g;
       let processedLine = line.replace(directiveRegex, (match, directive) => {
@@ -279,6 +285,9 @@ class mentionsProcessor {
             );
           });
           if (filteredNewLines.length > 0) {
+            // Check if this is a code block
+            const isCodeBlock = mention.blockType === "code";
+
             // Process directives in the filtered lines
             const processedLines = filteredNewLines
               .map((line) =>
@@ -286,7 +295,8 @@ class mentionsProcessor {
                   line,
                   linkPart,
                   currentPageContent,
-                  this.frontmatterObj
+                  this.frontmatterObj,
+                  isCodeBlock
                 )
               )
               .filter((line) => line !== null); // Remove lines marked for removal

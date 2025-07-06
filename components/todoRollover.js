@@ -87,8 +87,8 @@ class todoRollover {
    * Check if a todo is related to an activity (should NOT be rolled over)
    * Activity todos are those that appear under headers with [[Activity/...]] links
    */
-  isActivityRelatedTodo(todoData) {
-    // Check if the todo data contains activity-related patterns
+  async isActivityRelatedTodo(app, todoBlock, allBlocks) {
+    // First check if the todo itself contains activity references
     const activityPatterns = [
       /\[\[Activities\//, // [[Activities/...]]
       /\[\[MyObsidian\]\]/, // [[MyObsidian]]
@@ -96,8 +96,66 @@ class todoRollover {
       /##### \[\[MyObsidian/, // ##### [[MyObsidian...]]
     ];
 
-    // If the todo itself contains activity references, it's activity-related
-    return activityPatterns.some((pattern) => pattern.test(todoData));
+    if (activityPatterns.some((pattern) => pattern.test(todoBlock.data))) {
+      return true;
+    }
+
+    // Load the file content to check context
+    const fileContent = await this.loadFile(app, todoBlock.page);
+    if (!fileContent) return false;
+
+    const lines = fileContent.split("\n");
+
+    // Find the line number where this todo appears
+    let todoLineIndex = -1;
+    const todoText = todoBlock.data.trim();
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      // Remove callout markers and normalize
+      const normalizedLine = line.replace(/^>\s*/, "").trim();
+      if (normalizedLine === todoText) {
+        todoLineIndex = i;
+        break;
+      }
+    }
+
+    if (todoLineIndex === -1) return false;
+
+    // Look backwards from the todo line to find the most recent activity header
+    for (let i = todoLineIndex - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+
+      // If we hit a separator (----) or another header level, check what we found
+      if (line === "----" || line === "---") {
+        continue; // Skip separators, keep looking
+      }
+
+      // Check for activity headers (level 5: #####)
+      if (line.match(/^#{5}\s+\[\[Activities\//)) {
+        console.log("TodoRollover: Found activity header for todo:", line);
+        return true; // This todo is under an activity header
+      }
+
+      // Check for MyObsidian activity headers
+      if (
+        line.match(/^#{5}\s+\[\[Activities\/MyObsidian/) ||
+        line.includes("[[MyObsidian]]")
+      ) {
+        console.log(
+          "TodoRollover: Found MyObsidian activity header for todo:",
+          line
+        );
+        return true; // This todo is under MyObsidian activity
+      }
+
+      // If we hit a different header level (1-4), we've gone too far
+      if (line.match(/^#{1,4}\s+/)) {
+        break; // Stop looking, we're in a different section
+      }
+    }
+
+    return false; // No activity header found above this todo
   }
 
   processRecurrence(todoLine, noteDate) {
@@ -139,7 +197,9 @@ class todoRollover {
     );
 
     // Filter out blocks from future dates AND exclude activity-related todos
-    let todoBlocks = blocks.filter((item) => {
+    let todoBlocks = [];
+
+    for (const item of blocks) {
       // Extract date from file path (e.g., "Journal/2025/07.July/2025-07-05.md" -> "2025-07-05")
       const dateMatch = item.page.match(/(\d{4}-\d{2}-\d{2})/);
       if (!dateMatch) {
@@ -147,31 +207,39 @@ class todoRollover {
           "TodoRollover: Could not extract date from path:",
           item.page
         );
-        return false;
+        continue;
       }
 
       const blockDate = moment(dateMatch[1], "YYYY-MM-DD");
       const isBeforeToday = blockDate.isBefore(todayDate);
       const isTodo = item.blockType === "todo";
 
-      // CRITICAL: Only include standalone todos, NOT activity todos
-      const isActivityTodo = this.isActivityRelatedTodo(item.data);
-
-      if (isTodo) {
-        console.log(
-          "TodoRollover: Found todo block from",
-          item.page,
-          "- extracted date:",
-          dateMatch[1],
-          "- before today:",
-          isBeforeToday,
-          "- is activity todo:",
-          isActivityTodo
-        );
+      if (!isTodo || !isBeforeToday) {
+        continue;
       }
 
-      return isTodo && isBeforeToday && !isActivityTodo;
-    });
+      // CRITICAL: Only include standalone todos, NOT activity todos
+      const isActivityTodo = await this.isActivityRelatedTodo(
+        app,
+        item,
+        blocks
+      );
+
+      console.log(
+        "TodoRollover: Found todo block from",
+        item.page,
+        "- extracted date:",
+        dateMatch[1],
+        "- before today:",
+        isBeforeToday,
+        "- is activity todo:",
+        isActivityTodo
+      );
+
+      if (!isActivityTodo) {
+        todoBlocks.push(item);
+      }
+    }
 
     let doneBlocks = blocks.filter((item) => {
       // Extract date from file path
