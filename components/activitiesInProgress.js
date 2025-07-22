@@ -119,6 +119,7 @@ class activitiesInProgress {
           return line !== undefined && line !== null && line.trim() !== "";
         });
     }
+
     // Prepare the activities to be added
     const activityLinesArrays = await Promise.all(
       activities.map(async (activity) => {
@@ -143,6 +144,7 @@ class activitiesInProgress {
         }
       })
     );
+
     const activityLines = activityLinesArrays.flat();
 
     // Append the activities to the end of the note
@@ -162,7 +164,6 @@ class activitiesInProgress {
 
   async run(app, currentPageContent) {
     console.log("Running activitiesInProgress script...");
-
     return await this.insertActivitiesIntoDailyNote(
       currentPageContent,
       await this.filterActivities(app)
