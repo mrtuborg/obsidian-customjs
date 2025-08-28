@@ -10,14 +10,31 @@ class mentionsProcessor {
   async processMentions(currentPageContent, blocks, tagId, frontmatterObj) {
     this.frontmatterObj = frontmatterObj;
     // This is async operation
-    let mentionBlocks = blocks.filter(
-      (item) =>
-        (item.blockType === "mention" ||
-          item.blockType === "header" ||
-          item.blockType === "code") &&
-        item.data.includes(tagId) &&
+    // Handle both old array format and new BlockCollection format
+    let allBlocks = [];
+    if (blocks && typeof blocks.findByType === "function") {
+      // New BlockCollection format
+      allBlocks = blocks.blocks;
+    } else if (Array.isArray(blocks)) {
+      // Old array format - convert to Block-like objects for compatibility
+      allBlocks = blocks;
+    }
+
+    let mentionBlocks = allBlocks.filter((item) => {
+      // Handle both old and new formats
+      const blockType = item.getAttribute
+        ? item.getAttribute("type")
+        : item.blockType;
+      const blockData = item.content || item.data;
+
+      return (
+        (blockType === "mention" ||
+          blockType === "header" ||
+          blockType === "code") &&
+        blockData.includes(tagId) &&
         !currentPageContent.includes(tagId) // Exclude blocks from the current page
-    );
+      );
+    });
 
     // if (mentionBlocks) console.log("mentionBlocks:", mentionBlocks);
 
@@ -242,7 +259,7 @@ class mentionsProcessor {
     let addedMentionLines = new Set();
 
     mentionBlocks.forEach((mention) => {
-      let mentionData = mention.data;
+      let mentionData = mention.content || mention.data;
       let mentionPageLink = mention.page;
 
       const linkPart = mentionPageLink

@@ -56,6 +56,11 @@ class dailyNoteComposer {
         "YYYY-MM-DD"
       );
 
+      // Convert BlockCollection to compatibility array for existing components
+      const compatibilityBlocks = allBlocks.toCompatibilityArray
+        ? allBlocks.toCompatibilityArray()
+        : allBlocks;
+
       // Add activities in progress (only for today's note)
       if (pageIsToday) {
         // Sync activity todos before copying to daily note
@@ -71,7 +76,7 @@ class dailyNoteComposer {
       const tagId = currentPageFile.name;
       const mentions = await mentionsProcessor.run(
         pageContent,
-        allBlocks,
+        compatibilityBlocks,
         tagId
       );
       if (mentions && mentions.trim().length > 0) {

@@ -56,9 +56,14 @@ class activityComposer {
       const journalPages = dv.pages('"Journal"');
       const allBlocks = await noteBlocksParser.run(
         app,
-        journalPages,
+        journalPages.filter((page) => !page.file.path.trim().includes(title)),
         "YYYY-MM-DD"
       );
+
+      // Convert BlockCollection to compatibility array for existing components
+      const compatibilityBlocks = allBlocks.toCompatibilityArray
+        ? allBlocks.toCompatibilityArray()
+        : allBlocks;
 
       // Extract content after dataviewjs block for attribute processing
       let contentAfterDataview = "";
@@ -109,7 +114,7 @@ class activityComposer {
       const tagId = currentPageFile.name;
       const mentions = await mentionsProcessor.run(
         contentAfterDataview,
-        allBlocks,
+        compatibilityBlocks,
         tagId,
         frontmatterObj
       );
