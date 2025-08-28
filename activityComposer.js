@@ -30,12 +30,14 @@ class activityComposer {
       let responsible = dv.current().responsible?.toString();
       if (!responsible) responsible = "Me";
       let currentStage = dv.current().stage || "active";
+      let currentType = dv.current().type || null; // Preserve type field
 
       // Generate initial frontmatter
       let frontmatter = fileIO.generateActivityHeader(
         startDate,
         currentStage,
-        responsible
+        responsible,
+        currentType
       );
 
       // Remove the generated header from currentPageContent
@@ -96,7 +98,8 @@ class activityComposer {
       frontmatter = fileIO.generateActivityHeader(
         startDate,
         currentStage,
-        responsible
+        responsible,
+        currentType
       );
 
       // Update contentAfterDataview with processed content (directives converted to comments)
@@ -119,7 +122,8 @@ class activityComposer {
       frontmatter = fileIO.generateActivityHeader(
         frontmatterObj.startDate,
         frontmatterObj.stage,
-        frontmatterObj.responsible
+        frontmatterObj.responsible,
+        currentType
       );
 
       // Combine and save content

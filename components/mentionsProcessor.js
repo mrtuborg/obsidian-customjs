@@ -320,7 +320,54 @@ class mentionsProcessor {
     if (mentionBlocks.length === 0) return "";
 
     let newContent = [];
-    Object.keys(mentionBlocksBySource).forEach((linkPart) => {
+
+    // Sort mention blocks by date (chronological order: oldest → newest)
+    //
+    // SORTING DECISION: Chronological by date in linkPart (YYYY-MM-DD format)
+    //
+    // How it works:
+    // - Extracts date from linkPart: "2025-07-26" → moment object
+    // - Sorts by date: older dates first, newer dates after
+    // - Non-date linkParts are sorted alphabetically at the end
+    //
+    // Examples of sort order in activity files:
+    // - "[[2025-07-26]]" → comes FIRST (older date)
+    // - "[[2025-08-25]]" → comes AFTER (newer date)
+    // - "[[Non-Date-Link]]" → comes LAST (alphabetically)
+    //
+    // PROS of chronological sorting:
+    // ✅ Timeline Order: Shows progression of work over time
+    // ✅ Recent Context: Latest todos appear at bottom (most visible)
+    // ✅ Historical View: Easy to see when work was added
+    // ✅ Logical Flow: Natural chronological progression
+    //
+    // CONS of chronological sorting:
+    // ❌ Recent Buried: Latest todos might be less prominent
+    // ❌ Date Dependency: Requires YYYY-MM-DD format in linkPart
+    // ❌ Mixed Content: Non-date links sorted separately
+    //
+    // User requirement: Chronological order (older dates first, newer dates after)
+    const sortedLinkParts = Object.keys(mentionBlocksBySource).sort((a, b) => {
+      // Check if both are valid dates in YYYY-MM-DD format
+      const dateA = moment(a, "YYYY-MM-DD", true);
+      const dateB = moment(b, "YYYY-MM-DD", true);
+
+      if (dateA.isValid() && dateB.isValid()) {
+        // Both are dates - sort chronologically (older first)
+        return dateA.isBefore(dateB) ? -1 : dateA.isAfter(dateB) ? 1 : 0;
+      } else if (dateA.isValid() && !dateB.isValid()) {
+        // A is date, B is not - dates come first
+        return -1;
+      } else if (!dateA.isValid() && dateB.isValid()) {
+        // A is not date, B is date - dates come first
+        return 1;
+      } else {
+        // Neither are dates - sort alphabetically
+        return a.localeCompare(b);
+      }
+    });
+
+    sortedLinkParts.forEach((linkPart) => {
       const blockDataLength = mentionBlocksBySource[linkPart]
         .join("\n")
         .trim().length;

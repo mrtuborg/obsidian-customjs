@@ -8,7 +8,7 @@ class dailyNoteComposer {
    * Process a daily note with full pipeline:
    * - Generate daily note frontmatter
    * - Parse journal blocks
-   * - Todo rollover (if today)
+   * - Sync activity todos (if today)
    * - Add activities in progress (if today)
    * - Process mentions
    * - Remove scripts (if today)
@@ -19,7 +19,7 @@ class dailyNoteComposer {
       // Load required modules
       const { fileIO } = await cJS();
       const { noteBlocksParser } = await cJS();
-      const { todoRollover } = await cJS();
+      const { todoSyncManager } = await cJS();
       const { activitiesInProgress } = await cJS();
       const { mentionsProcessor } = await cJS();
       const { scriptsRemove } = await cJS();
@@ -56,44 +56,11 @@ class dailyNoteComposer {
         "YYYY-MM-DD"
       );
 
-      // Todo Rollover (only for today's note)
-      if (pageIsToday) {
-        //try {
-        const remove = true;
-        console.log("Starting todo rollover for:", dailyNoteDate);
-        console.log("Total blocks found:", allBlocks.length);
-        console.log(
-          "Todo blocks:",
-          allBlocks.filter((b) => b.blockType === "todo").length
-        );
-
-        const todos = await todoRollover.run(
-          app,
-          allBlocks,
-          dailyNoteDate,
-          pageContent,
-          remove
-        );
-
-        console.log(
-          "Todo rollover result:",
-          typeof todos,
-          todos ? todos.length : 0
-        );
-
-        if (todos && typeof todos === "string" && todos.trim().length > 0) {
-          pageContent = todos; // FIXED: Direct assignment instead of concatenation
-          console.log("Todo rollover completed successfully");
-        } else {
-          console.log("No todos to rollover or empty result");
-        }
-        //} catch (error) {
-        //  console.error("Todo rollover failed:", error);
-        //}
-      }
-
       // Add activities in progress (only for today's note)
       if (pageIsToday) {
+        // Sync activity todos before copying to daily note
+        await todoSyncManager.run(app);
+
         const activities = await activitiesInProgress.run(app, pageContent);
         if (activities && activities.trim().length > 0) {
           pageContent = activities;

@@ -66,7 +66,7 @@ class fileIO {
     return currentDate.toISOString().split("T")[0];
   }
 
-  generateActivityHeader(date, stage, responsible) {
+  generateActivityHeader(date, stage, responsible, type = null) {
     // Convert date to proper format
     let formattedDate = moment(date).format("YYYY-MM-DD");
 
@@ -104,13 +104,16 @@ class fileIO {
       );
     }
 
-    let headerLines = [
-      "---",
-      `startDate: ${formattedDate}`,
-      `stage: ${stage}`,
-      `responsible: [${responsible}]`,
-      "---",
-    ];
+    let headerLines = ["---", `startDate: ${formattedDate}`, `stage: ${stage}`];
+
+    // Add type field if provided
+    if (type && typeof type === "string") {
+      headerLines.push(`type: ${type}`);
+    }
+
+    headerLines.push(`responsible: [${responsible}]`);
+    headerLines.push("---");
+
     return headerLines.join("\n");
   }
 
