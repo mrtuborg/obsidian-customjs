@@ -6,24 +6,74 @@ class testBlockSystem {
     console.log("=== Testing Object-Oriented Block System ===");
 
     try {
-      // Test Block creation
+      // Load required classes from CustomJS
+      const cjsResult = await cJS();
+      console.log("Available CustomJS modules:", Object.keys(cjsResult));
+
+      // Try to get Block classes - they might be in different modules
+      let Block, BlockCollection, noteBlocksParser;
+
+      // Use constructor functions from CustomJS (createXxxInstance)
+      if (cjsResult.createBlockInstance) {
+        Block = cjsResult.createBlockInstance;
+        console.log("✅ Block constructor found");
+        console.log("Block constructor type:", typeof Block);
+        console.log("Block constructor:", Block);
+      } else {
+        throw new Error(
+          "createBlockInstance not available in CustomJS. Available modules: " +
+            Object.keys(cjsResult).join(", ")
+        );
+      }
+
+      // BlockCollection constructor
+      if (cjsResult.createBlockCollectionInstance) {
+        BlockCollection = cjsResult.createBlockCollectionInstance;
+        console.log("✅ BlockCollection constructor found");
+      } else {
+        throw new Error(
+          "createBlockCollectionInstance not available in CustomJS. Make sure BlockCollection.js is loaded."
+        );
+      }
+
+      // noteBlocksParser constructor
+      if (cjsResult.createnoteBlocksParserInstance) {
+        noteBlocksParser = cjsResult.createnoteBlocksParserInstance;
+        console.log("✅ noteBlocksParser constructor found");
+      } else {
+        throw new Error(
+          "createnoteBlocksParserInstance not available in CustomJS"
+        );
+      }
+
+      // Test Block creation - use factory functions, not constructors
       console.log("\n1. Testing Block creation...");
-      const block1 = new Block("test.md", "# Header 1", Date.now());
+      const block1 = Block(); // Factory function call
+      // Manually set properties since factory doesn't take parameters
+      block1.page = "test.md";
+      block1.content = "# Header 1";
+      block1.mtime = Date.now();
       block1.setAttribute("type", "header");
       block1.setAttribute("level", 1);
       console.log("✅ Block created:", block1.toString());
 
       // Test BlockCollection
       console.log("\n2. Testing BlockCollection...");
-      const collection = new BlockCollection();
+      const collection = BlockCollection(); // Factory function call
       collection.addBlock(block1);
 
-      const block2 = new Block("test.md", "- [ ] Todo item", Date.now());
+      const block2 = Block(); // Factory function call
+      block2.page = "test.md";
+      block2.content = "- [ ] Todo item";
+      block2.mtime = Date.now();
       block2.setAttribute("type", "todo");
       block2.setAttribute("indentLevel", 0);
       collection.addBlock(block2);
 
-      const block3 = new Block("test.md", "  - [ ] Nested todo", Date.now());
+      const block3 = Block(); // Factory function call
+      block3.page = "test.md";
+      block3.content = "  - [ ] Nested todo";
+      block3.mtime = Date.now();
       block3.setAttribute("type", "todo");
       block3.setAttribute("indentLevel", 2);
       collection.addBlock(block3);
@@ -62,7 +112,7 @@ class testBlockSystem {
 
       // Test noteBlocksParser with sample content
       console.log("\n6. Testing noteBlocksParser...");
-      const parser = new noteBlocksParser();
+      const parser = noteBlocksParser(); // Factory function call
       const sampleContent = `# Header 1
 - [ ] Task 1
   - [ ] Subtask 1.1
@@ -73,7 +123,7 @@ class testBlockSystem {
 [[Some Link]]
 > Callout text`;
 
-      const parsed = parser.parse("sample.md", sampleContent);
+      const parsed = await parser.parse("sample.md", sampleContent);
       console.log("✅ Parsed", parsed.blocks.length, "blocks");
       console.log("✅ Block types:", parsed.getStats().types);
       console.log("✅ Hierarchy stats:", {

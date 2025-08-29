@@ -37,9 +37,14 @@ class noteBlocksParser {
     return content;
   }
 
-  parse(page, content) {
+  async parse(page, content) {
     const lines = content.split("\n");
-    const collection = new BlockCollection();
+
+    // Get BlockCollection from CustomJS
+    const cjsResult = await cJS();
+    const { BlockCollection, Block } = cjsResult;
+
+    const collection = BlockCollection.createNew();
     let currentHeaderBlock = null; // Current header that can accept children
     let currentHeaderLevel = 0;
     let currentBlock = null; // Current block being built (for multi-line blocks)
@@ -68,7 +73,7 @@ class noteBlocksParser {
         }
 
         // Create new header block
-        const headerBlock = new Block(page, line, Date.now());
+        const headerBlock = Block.createNew(page, line, Date.now());
         headerBlock.setAttribute("type", "header");
         headerBlock.setAttribute("level", newHeaderLevel);
         headerBlock.setAttribute("indentLevel", 0); // Headers are always at root level
@@ -88,22 +93,26 @@ class noteBlocksParser {
         currentHeaderLevel = newHeaderLevel;
         currentBlock = headerBlock;
         emptyLineCount = 0;
+
+        // Make sure to finalize the header block so it gets added to collection
+        this.finalizeBlock(collection, headerBlock);
       } else if (trimmedLine === "") {
         // Empty line - count for breaking parent-child link
         emptyLineCount++;
         if (emptyLineCount >= 2) {
           // Break parent-child link - no more children for current header
+          if (currentBlock) {
+            this.finalizeBlock(collection, currentBlock);
+            currentBlock = null;
+          }
           if (currentHeaderBlock) {
             this.finalizeBlock(collection, currentHeaderBlock);
             currentHeaderBlock = null;
             currentHeaderLevel = 0;
           }
-          if (currentBlock && currentBlock !== currentHeaderBlock) {
-            this.finalizeBlock(collection, currentBlock);
-            currentBlock = null;
-          }
-          // Reset indentation stack
+          // Reset indentation stack and header stack
           indentationStack = [];
+          headerStack = [];
         }
       } else if (trimmedLine === "---" || trimmedLine === "----") {
         // Horizontal ruler - break parent-child link
@@ -119,6 +128,12 @@ class noteBlocksParser {
         // Reset indentation stack
         indentationStack = [];
         emptyLineCount = 0;
+
+        // Create a separator block to mark the break
+        const separatorBlock = Block.createNew(page, line, Date.now());
+        separatorBlock.setAttribute("type", "separator");
+        separatorBlock.setAttribute("indentLevel", 0);
+        this.finalizeBlock(collection, separatorBlock);
       } else if (this.isCallout(trimmedLine)) {
         // When meet the > line
         if (
@@ -135,7 +150,7 @@ class noteBlocksParser {
           }
 
           // Start new callout block
-          const calloutBlock = new Block(page, line, Date.now());
+          const calloutBlock = Block.createNew(page, line, Date.now());
           calloutBlock.setAttribute("type", "callout");
           calloutBlock.setAttribute("indentLevel", indentLevel);
 
@@ -173,7 +188,7 @@ class noteBlocksParser {
           }
 
           // Start new code block
-          const codeBlock = new Block(page, line, Date.now());
+          const codeBlock = Block.createNew(page, line, Date.now());
           codeBlock.setAttribute("type", "code");
           codeBlock.setAttribute("indentLevel", indentLevel);
 
@@ -200,7 +215,7 @@ class noteBlocksParser {
         }
 
         // Create mention block
-        const mentionBlock = new Block(page, line, Date.now());
+        const mentionBlock = Block.createNew(page, line, Date.now());
         mentionBlock.setAttribute("type", "mention");
         mentionBlock.setAttribute("indentLevel", indentLevel);
 
@@ -237,7 +252,7 @@ class noteBlocksParser {
         emptyLineCount = 0;
       } else if (this.isTodoLine(trimmedLine)) {
         // Create todo block
-        const todoBlock = new Block(page, line, Date.now());
+        const todoBlock = Block.createNew(page, line, Date.now());
         todoBlock.setAttribute("type", "todo");
         todoBlock.setAttribute("indentLevel", indentLevel);
 
@@ -263,7 +278,7 @@ class noteBlocksParser {
         emptyLineCount = 0;
       } else if (this.isDoneLine(trimmedLine)) {
         // Create done block
-        const doneBlock = new Block(page, line, Date.now());
+        const doneBlock = Block.createNew(page, line, Date.now());
         doneBlock.setAttribute("type", "done");
         doneBlock.setAttribute("indentLevel", indentLevel);
 
@@ -293,7 +308,7 @@ class noteBlocksParser {
           currentBlock.content += "\n" + line;
         } else if (trimmedLine.length > 0) {
           // Create a text block for content
-          const textBlock = new Block(page, line, Date.now());
+          const textBlock = Block.createNew(page, line, Date.now());
           textBlock.setAttribute("type", "text");
           textBlock.setAttribute("indentLevel", indentLevel);
 
@@ -448,7 +463,11 @@ class noteBlocksParser {
   }
 
   async run(app, pages, namePattern = "") {
-    const allBlocks = new BlockCollection();
+    // Get BlockCollection from CustomJS for the run method too
+    const cjsResult = await cJS();
+    const { BlockCollection } = cjsResult;
+
+    const allBlocks = BlockCollection.createNew();
 
     console.log("NoteBlocksParser: Starting to process pages...");
     console.log("NoteBlocksParser: Name pattern:", namePattern);
@@ -466,7 +485,7 @@ class noteBlocksParser {
 
       console.log("NoteBlocksParser: Processing page:", page.file.name);
       const content = await this.loadFile(app, page.file.path);
-      const pageCollection = this.parse(page.file.path, content);
+      const pageCollection = await this.parse(page.file.path, content);
 
       console.log(
         "NoteBlocksParser: Found",
@@ -501,31 +520,3 @@ class noteBlocksParser {
     return allBlocks;
   }
 }
-
-// Example usage with indentation hierarchy:
-// -----------------
-// const content = `### header 1
-// - [ ] el 1
-//   - [ ] el 1.1
-//   - [ ] el 1.2
-// - [ ] el 2
-//
-// ### header 2
-// - [ ] el a
-//   - [ ] el a1
-//   - [ ] el a2
-// - [ ] el b
-// `;
-//
-// Result hierarchy:
-// header 1
-//   ├── el 1
-//   │   ├── el 1.1
-//   │   └── el 1.2
-//   └── el 2
-// header 2
-//   ├── el a
-//   │   ├── el a1
-//   │   └── el a2
-//   └── el b
-// -----------------
