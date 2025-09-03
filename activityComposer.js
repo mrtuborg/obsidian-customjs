@@ -13,11 +13,14 @@ class activityComposer {
    */
   async processActivity(app, dv, currentPageFile) {
     try {
-      // Load required modules
-      const { fileIO } = await cJS();
-      const { noteBlocksParser } = await cJS();
-      const { attributesProcessor } = await cJS();
-      const { mentionsProcessor } = await cJS();
+      // Load required modules - single cJS() call for efficiency
+      const cjs = await cJS();
+      const {
+        fileIO,
+        noteBlocksParser,
+        attributesProcessor,
+        mentionsProcessor,
+      } = cjs;
 
       // Load current page content
       let currentPageContent = await fileIO.loadFile(app, currentPageFile.path);
@@ -56,14 +59,14 @@ class activityComposer {
       const journalPages = dv.pages('"Journal"');
       const allBlocks = await noteBlocksParser.run(
         app,
-        journalPages.filter((page) => !page.file.path.trim().includes(title)),
+        journalPages.filter(
+          (page) => !page.file.path.trim().includes(currentPageFile.name)
+        ),
         "YYYY-MM-DD"
       );
 
-      // Convert BlockCollection to compatibility array for existing components
-      const compatibilityBlocks = allBlocks.toCompatibilityArray
-        ? allBlocks.toCompatibilityArray()
-        : allBlocks;
+      // Use BlockCollection directly - NEW APPROACH (removed compatibility layer)
+      const blockCollection = allBlocks;
 
       // Extract content after dataviewjs block for attribute processing
       let contentAfterDataview = "";
@@ -110,11 +113,11 @@ class activityComposer {
       // Update contentAfterDataview with processed content (directives converted to comments)
       contentAfterDataview = processedContent;
 
-      // Process mentions
+      // Process mentions - using BlockCollection directly
       const tagId = currentPageFile.name;
       const mentions = await mentionsProcessor.run(
         contentAfterDataview,
-        compatibilityBlocks,
+        blockCollection,
         tagId,
         frontmatterObj
       );

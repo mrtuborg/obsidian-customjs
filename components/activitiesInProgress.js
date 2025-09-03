@@ -1,12 +1,17 @@
 class activitiesInProgress {
-  async filterActivities(app) {
+  /**
+   * OPTIMIZED: Parse all activity files once and filter activities with their todos
+   * @param {Object} app - Obsidian app instance
+   * @returns {Promise<Array>} Array of activity objects with parsed todos
+   */
+  async filterActivitiesWithTodos(app) {
     const currentDate = new Date();
-
     const currentDateString = currentDate.toISOString().split("T")[0];
 
-    const activitiesFolder = "Activities"; // Replace with the exact folder name in your vault
-    const archiveFolder = activitiesFolder + "/Archive"; // Folder to exclude
-    const files = app.vault
+    // Get all activity files using vault API
+    const activitiesFolder = "Activities";
+    const archiveFolder = activitiesFolder + "/Archive";
+    const activityFiles = app.vault
       .getFiles()
       .filter(
         (file) =>
@@ -14,14 +19,38 @@ class activitiesInProgress {
           !file.path.startsWith(archiveFolder)
       );
 
+    if (activityFiles.length === 0) return [];
+
+    // Parse all activity files into Blocks ONCE - OPTIMIZED APPROACH
+    const cjs = await cJS();
+    const noteBlocksParser = cjs.createnoteBlocksParserInstance();
+    const allActivityBlocks = await noteBlocksParser.run(
+      app,
+      activityFiles.map((file) => ({ file })),
+      null // No date format restriction for activity files
+    );
+
+    // Group blocks by file path for efficient processing
+    const blocksByFile = {};
+    for (const block of allActivityBlocks.blocks) {
+      if (!blocksByFile[block.page]) {
+        blocksByFile[block.page] = [];
+      }
+      blocksByFile[block.page].push(block);
+    }
+
+    // Filter activities and extract todos in one pass
     const filteredActivities = [];
 
-    for (const file of files) {
-      const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
+    for (const filePath of Object.keys(blocksByFile)) {
+      // Get frontmatter for this activity file
+      const frontmatter = app.metadataCache.getFileCache(
+        app.vault.getAbstractFileByPath(filePath)
+      )?.frontmatter;
+
       if (!frontmatter || !frontmatter.stage) continue;
 
       // Check if the activity is in progress or not done
-      // and if the start date is before or equal to the current date
       if (
         frontmatter.stage !== "done" &&
         moment(frontmatter.startDate, "YYYY-MM-DD").isSameOrBefore(
@@ -29,9 +58,35 @@ class activitiesInProgress {
           "YYYY-MM-DD"
         )
       ) {
+        // Extract todos from this file's blocks
+        const fileBlocks = blocksByFile[filePath];
+        const todoBlocks = fileBlocks.filter(
+          (block) => block.getAttribute("type") === "todo"
+        );
+        const doneBlocks = fileBlocks.filter(
+          (block) => block.getAttribute("type") === "done"
+        );
+
+        // Filter out completed todos
+        const completedTaskNames = new Set();
+        doneBlocks.forEach((doneBlock) => {
+          const taskName = this.extractTaskNameFromBlock(doneBlock);
+          if (taskName) {
+            completedTaskNames.add(taskName);
+          }
+        });
+
+        const incompleteTodoBlocks = todoBlocks.filter((todoBlock) => {
+          const taskName = this.extractTaskNameFromBlock(todoBlock);
+          return taskName && !completedTaskNames.has(taskName);
+        });
+
+        // Store activity with its todos
         filteredActivities.push({
-          path: file.path,
+          path: filePath,
           stage: frontmatter.stage,
+          frontmatter: frontmatter,
+          todoBlocks: incompleteTodoBlocks,
         });
       }
     }
@@ -148,100 +203,51 @@ class activitiesInProgress {
     return filteredActivities;
   }
 
-  async analyzeActivityFileContentForTodos(filePath) {
-    const fileContent = await app.vault.read(
-      app.vault.getAbstractFileByPath(filePath)
-    );
-    // Check if fileContent is undefined or empty
-    if (!fileContent) {
-      console.warn(`No content found for file: ${filePath}`);
-      return [];
+  /**
+   * Helper method to extract task name from Block content
+   * @param {Block} block - Block object containing todo/done content
+   * @returns {string|null} Extracted task name or null
+   */
+  extractTaskNameFromBlock(block) {
+    if (!block || !block.content) return null;
+
+    const content = block.content.trim();
+
+    // Handle both todo and done patterns
+    if (content.startsWith("- [ ]")) {
+      return content.substring(6).trim();
+    } else if (content.startsWith("- [x]")) {
+      return content.substring(6).trim();
     }
 
-    if (fileContent.length === 0) {
-      console.warn(`File is empty: ${filePath}`);
-      return [];
-    }
-    // Split the content into lines and filter out empty lines
-    const lines = fileContent
-      .trim()
-      .split("\n")
-      .filter((line) => line.trim() !== "");
-
-    // Extract lines that start with '- [ ]' or '- [x]'
-    const allTodoLines = lines.filter(
-      (line) => line.startsWith("- [ ]") || line.startsWith("- [x]")
-    );
-
-    // Extract task names from completed todos (- [x])
-    const completedTaskNames = new Set();
-    allTodoLines.forEach((line) => {
-      if (line.startsWith("- [x]")) {
-        // Extract task name by removing "- [x] " prefix
-        const taskName = line.substring(6).trim();
-        completedTaskNames.add(taskName);
-      }
-    });
-
-    // Filter out any task (both incomplete and complete) if it has a completed version
-    const todoLines = allTodoLines.filter((line) => {
-      let taskName;
-      if (line.startsWith("- [ ]")) {
-        taskName = line.substring(6).trim();
-      } else if (line.startsWith("- [x]")) {
-        taskName = line.substring(6).trim();
-      }
-
-      // Exclude this line if the task name exists in completed tasks
-      return !completedTaskNames.has(taskName);
-    });
-
-    return todoLines;
+    return null;
   }
 
-  async insertActivitiesIntoDailyNote(currentPageContent, activities) {
-    let currentLines = [];
-    if (currentPageContent && currentPageContent.length > 0) {
-      // Split the content into lines and filter out empty lines
-      currentLines = currentPageContent
-        .trim()
-        .split("\n")
-        .filter((line) => {
-          // Cannot handle 'undefined'
-          return line !== undefined && line !== null && line.trim() !== "";
-        });
-    }
+  /**
+   * OPTIMIZED: Generate clean activities list using pre-parsed todos
+   * @param {Array} activities - Array of activity objects with pre-parsed todoBlocks
+   * @returns {Promise<string>} Clean activities content
+   */
+  async generateActivitiesList(activities) {
+    // Generate fresh activities content using pre-parsed todos - OPTIMIZED APPROACH
+    const activityLinesArrays = activities.map((activity) => {
+      const filename = activity.path
+        .split("/")
+        .pop()
+        .replace(/\.[^/.]+$/, "");
 
-    // Prepare the activities to be added
-    const activityLinesArrays = await Promise.all(
-      activities.map(async (activity) => {
-        // Extract the filename without path and extension
-        const filename = activity.path
-          .split("/")
-          .pop()
-          .replace(/\.[^/.]+$/, "");
-
-        let activityToDos = await this.analyzeActivityFileContentForTodos(
-          activity.path
-        );
-
-        if (activityToDos.length > 0) {
-          return [
-            `##### [[${activity.path}|${filename}]]`,
-            ...activityToDos,
-            `----`,
-          ];
-        } else {
-          return [`##### [[${activity.path}|${filename}]]`, `----`];
-        }
-      })
-    );
+      if (activity.todoBlocks.length > 0) {
+        const todoLines = activity.todoBlocks.map((block) => block.content);
+        return [`##### [[${activity.path}|${filename}]]`, ...todoLines, `----`];
+      } else {
+        return [`##### [[${activity.path}|${filename}]]`, `----`];
+      }
+    });
 
     const activityLines = activityLinesArrays.flat();
 
-    // Append the activities to the end of the note
-    const newContent = [
-      ...currentLines,
+    // Generate clean activities content
+    const activitiesContent = [
       `----`,
       ``,
       `### Activities:`,
@@ -251,14 +257,13 @@ class activitiesInProgress {
       ``,
     ].join(`\n`);
 
-    return newContent;
+    return activitiesContent;
   }
 
-  async run(app, currentPageContent) {
+  async run(app) {
     console.log("Running activitiesInProgress script...");
-    return await this.insertActivitiesIntoDailyNote(
-      currentPageContent,
-      await this.filterActivities(app)
+    return await this.generateActivitiesList(
+      await this.filterActivitiesWithTodos(app)
     );
   }
 }

@@ -469,10 +469,6 @@ class noteBlocksParser {
 
     const allBlocks = BlockCollection.createNew();
 
-    console.log("NoteBlocksParser: Starting to process pages...");
-    console.log("NoteBlocksParser: Name pattern:", namePattern);
-    console.log("NoteBlocksParser: Total pages to process:", pages.length);
-
     for (const page of pages) {
       // If a namePattern is provided, check if the page name includes the pattern
       if (namePattern && !moment(page.file.name, namePattern, true).isValid()) {
@@ -483,39 +479,14 @@ class noteBlocksParser {
         continue;
       }
 
-      console.log("NoteBlocksParser: Processing page:", page.file.name);
       const content = await this.loadFile(app, page.file.path);
       const pageCollection = await this.parse(page.file.path, content);
-
-      console.log(
-        "NoteBlocksParser: Found",
-        pageCollection.blocks.length,
-        "blocks in",
-        page.file.name
-      );
-      console.log(
-        "NoteBlocksParser: Block types:",
-        pageCollection.blocks.map((b) => b.getAttribute("type"))
-      );
 
       // Add all blocks from page to main collection
       for (const block of pageCollection.blocks) {
         allBlocks.addBlock(block);
       }
     }
-
-    console.log(
-      "NoteBlocksParser: Finished processing pages. Total parsed blocks:",
-      allBlocks.blocks.length
-    );
-
-    const stats = allBlocks.getStats();
-    console.log("NoteBlocksParser: Block type summary:", stats.types);
-    console.log("NoteBlocksParser: Hierarchy stats:", {
-      totalBlocks: stats.totalBlocks,
-      rootBlocks: stats.rootBlocks,
-      blocksWithParents: stats.totalBlocks - stats.rootBlocks,
-    });
 
     return allBlocks;
   }

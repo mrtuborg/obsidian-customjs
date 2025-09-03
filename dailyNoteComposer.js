@@ -16,13 +16,16 @@ class dailyNoteComposer {
    */
   async processDailyNote(app, dv, currentPageFile, title) {
     try {
-      // Load required modules
-      const { fileIO } = await cJS();
-      const { noteBlocksParser } = await cJS();
-      const { todoSyncManager } = await cJS();
-      const { activitiesInProgress } = await cJS();
-      const { mentionsProcessor } = await cJS();
-      const { scriptsRemove } = await cJS();
+      // Load required modules - single cJS() call for efficiency
+      const cjs = await cJS();
+      const {
+        fileIO,
+        noteBlocksParser,
+        todoSyncManager,
+        activitiesInProgress,
+        mentionsProcessor,
+        scriptsRemove,
+      } = cjs;
 
       // Load current page content
       let currentPageContent = await fileIO.loadFile(app, currentPageFile.path);
@@ -56,10 +59,8 @@ class dailyNoteComposer {
         "YYYY-MM-DD"
       );
 
-      // Convert BlockCollection to compatibility array for existing components
-      const compatibilityBlocks = allBlocks.toCompatibilityArray
-        ? allBlocks.toCompatibilityArray()
-        : allBlocks;
+      // Use BlockCollection directly - NEW APPROACH (removed compatibility layer)
+      const blockCollection = allBlocks;
 
       // Add activities in progress (only for today's note)
       if (pageIsToday) {
@@ -72,11 +73,11 @@ class dailyNoteComposer {
         }
       }
 
-      // Process mentions
+      // Process mentions - using BlockCollection directly
       const tagId = currentPageFile.name;
       const mentions = await mentionsProcessor.run(
         pageContent,
-        compatibilityBlocks,
+        blockCollection,
         tagId
       );
       if (mentions && mentions.trim().length > 0) {
