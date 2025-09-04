@@ -100,6 +100,36 @@ class mentionsProcessor {
 
     if (mentionBlocks.length === 0) return "";
 
+    // CHRONOLOGICAL SORTING FIX: Sort mention blocks by source file date BEFORE grouping
+    // This ensures daily note sections appear in correct chronological order (old → new)
+    mentionBlocks.sort((blockA, blockB) => {
+      const linkPartA = blockA.page
+        .toString()
+        .replace(/.*\/|\.md.*/g, "")
+        .trim();
+      const linkPartB = blockB.page
+        .toString()
+        .replace(/.*\/|\.md.*/g, "")
+        .trim();
+
+      const dateA = moment(linkPartA, "YYYY-MM-DD", true);
+      const dateB = moment(linkPartB, "YYYY-MM-DD", true);
+
+      if (dateA.isValid() && dateB.isValid()) {
+        // Both are valid dates - sort chronologically (old → new)
+        return dateA.isBefore(dateB) ? -1 : dateA.isAfter(dateB) ? 1 : 0;
+      } else if (dateA.isValid() && !dateB.isValid()) {
+        // A is date, B is not - dates come first
+        return -1;
+      } else if (!dateA.isValid() && dateB.isValid()) {
+        // B is date, A is not - dates come first
+        return 1;
+      } else {
+        // Neither is date - fallback to alphabetical sorting
+        return linkPartA.localeCompare(linkPartB);
+      }
+    });
+
     // Parse current page content into blocks for comparison
     const currentLines = currentPageContent
       ? currentPageContent.split("\n")
@@ -113,7 +143,7 @@ class mentionsProcessor {
     insertIndex =
       insertIndex !== -1 ? insertIndex + 1 : currentLines.length + 1;
 
-    // Group mention blocks by source file for processing
+    // Group mention blocks by source file for processing (now pre-sorted chronologically)
     let mentionBlocksBySource = {};
     let addedMentionLines = new Set();
 
