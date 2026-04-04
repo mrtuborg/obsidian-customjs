@@ -145,11 +145,7 @@ class mentionsProcessor {
 
     // Group mention blocks by source file for processing (now pre-sorted chronologically)
     let mentionBlocksBySource = {};
-    // Per-source-date dedup sets: prevent the same block appearing twice within ONE date section
-    // (e.g. a block that is both a direct mention AND hierarchical content).
-    // Using separate sets per source ensures tasks shared across multiple new date sections
-    // are each added to their own section rather than being blocked after the first one.
-    let addedMentionLinesBySource = {};
+    let addedMentionLines = new Set();
 
     // Process each mention block using Block system
     for (const mentionBlock of mentionBlocks) {
@@ -161,7 +157,6 @@ class mentionsProcessor {
 
       if (!mentionBlocksBySource[linkPart]) {
         mentionBlocksBySource[linkPart] = [];
-        addedMentionLinesBySource[linkPart] = new Set();
       }
 
       // Process block content based on type
@@ -171,7 +166,7 @@ class mentionsProcessor {
         linkPart,
         currentPageContent,
         currentLines,
-        addedMentionLinesBySource[linkPart]
+        addedMentionLines
       );
 
       if (processedContent && processedContent.length > 0) {
@@ -203,6 +198,9 @@ class mentionsProcessor {
     });
 
     // Build new content from processed blocks
+    // normalizedCurrentLines is used for the final guard below
+    const normalizedCurrentLines = currentLines.map((l) => l.trim());
+
     sortedLinkParts.forEach((linkPart) => {
       const blockDataLength = mentionBlocksBySource[linkPart]
         .join("\n")
@@ -212,13 +210,22 @@ class mentionsProcessor {
         const filteredMentions = mentionBlocksBySource[linkPart].filter(
           (mentionData) => {
             const trimmed = mentionData.trim();
-            return !/^(#+)[ \t]*$/.test(trimmed);
+            // Discard empty lines and bare header markers (e.g. "#####")
+            return trimmed.length > 0 && !/^(#+)[ \t]*$/.test(trimmed);
           }
         );
 
-        if (filteredMentions.length > 0) {
+        // Final guard: only create a date section when it contains at least one
+        // content line that is genuinely absent from the activity body.
+        // This stops duplicate sections forming when unchanged tasks are copied
+        // from the same activity into every new daily note.
+        const trulyNewMentions = filteredMentions.filter((mentionData) => {
+          return !normalizedCurrentLines.includes(mentionData.trim());
+        });
+
+        if (trulyNewMentions.length > 0) {
           newContent.push(`\n[[${linkPart}]]`);
-          filteredMentions.forEach((mentionData) => {
+          trulyNewMentions.forEach((mentionData) => {
             newContent.push(mentionData + "\n");
           });
         }
@@ -261,14 +268,6 @@ class mentionsProcessor {
 
     const mentionLines = blockContent.split("\n");
     const normalizedCurrentLines = currentLines.map((l) => l.trim());
-
-    // Check if this source already has a date section in the current content.
-    // If not, it's a brand-new section: skip global text deduplication so that
-    // tasks repeated from older sections still appear under the new date.
-    const sourceSectionExists = currentLines.some(
-      (l) => l.trim() === `[[${sourceFileName}]]`
-    );
-
     let processedLines = [];
 
     for (const line of mentionLines) {
@@ -278,14 +277,8 @@ class mentionsProcessor {
         ? line.replace(/(?<!\!)\[\[.*?\]\]/g, "").trim() // Remove ALL links for comparison only
         : this.normalizeLine(line, tagId);
 
-      // When the source section is brand-new, skip global deduplication — only
-      // guard against duplicates within the current processing run via addedMentionLines.
-      const isNew = sourceSectionExists
-        ? this.isLineNew(normalizedLine, normalizedCurrentLines)
-        : true;
-
       if (
-        isNew &&
+        this.isLineNew(normalizedLine, normalizedCurrentLines) &&
         !addedMentionLines.has(normalizedLine)
       ) {
         // Only log new mentions for date-based tagIds (daily notes debugging)
@@ -504,7 +497,9 @@ class mentionsProcessor {
 
   // Helper function to check if a line is new
   isLineNew(normalizedLine, normalizedCurrentLines) {
-    if (normalizedLine === "") return true;
+    // Empty lines are never considered "new content" — they are formatting only.
+    // Treating them as new caused blank lines to trigger false date-section creation.
+    if (normalizedLine === "") return false;
     return !normalizedCurrentLines.includes(normalizedLine);
   }
 
