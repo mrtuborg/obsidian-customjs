@@ -125,8 +125,9 @@ class noteBlocksParser {
           currentHeaderBlock = null;
           currentHeaderLevel = 0;
         }
-        // Reset indentation stack
+        // Reset indentation stack and header stack
         indentationStack = [];
+        headerStack = [];
         emptyLineCount = 0;
 
         // Create a separator block to mark the break

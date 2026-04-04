@@ -10,7 +10,7 @@ class fileIO {
   async saveFile(app, filename, content) {
     const abstractFilePath = app.vault.getAbstractFileByPath(filename);
     if (!abstractFilePath) {
-      console.error("File not found: ", page.path);
+      console.error("File not found: ", filename);
       return;
     }
 
@@ -160,6 +160,8 @@ class fileIO {
     }
 
     // Extract dataviewjs block
+    // The closing line must be exactly ``` (no language tag) to avoid matching
+    // nested code fences inside the dataviewjs script.
     if (pageContent.startsWith("```dataviewjs")) {
       const dataviewLines = pageContent.split("\n");
       let blockStart = -1;
@@ -168,7 +170,8 @@ class fileIO {
       for (let i = 0; i < dataviewLines.length; i++) {
         if (dataviewLines[i].startsWith("```dataviewjs") && blockStart === -1) {
           blockStart = i;
-        } else if (dataviewLines[i].startsWith("```") && blockStart !== -1) {
+        } else if (blockStart !== -1 && dataviewLines[i].trim() === "```") {
+          // Only a bare ``` line closes the dataviewjs block
           blockEnd = i;
           break;
         }

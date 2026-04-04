@@ -30,8 +30,10 @@ class activityComposer {
       let startDate = startDateRaw?.toString().format("YYYY-MM-DD");
       if (!startDate) startDate = fileIO.todayDate();
 
-      let responsible = dv.current().responsible?.toString();
-      if (!responsible) responsible = "Me";
+      const rawResponsible = dv.current().responsible;
+      let responsible = Array.isArray(rawResponsible)
+        ? rawResponsible
+        : (rawResponsible ? String(rawResponsible) : "Me");
       let currentStage = dv.current().stage || "active";
       let currentType = dv.current().type || null; // Preserve type field
 
@@ -91,6 +93,7 @@ class activityComposer {
         startDate: startDate,
         stage: currentStage,
         responsible: responsible,
+        type: currentType,
       };
 
       const processedContent = await attributesProcessor.processAttributes(
@@ -131,7 +134,7 @@ class activityComposer {
         frontmatterObj.startDate,
         frontmatterObj.stage,
         frontmatterObj.responsible,
-        currentType
+        frontmatterObj.type
       );
 
       // Combine and save content

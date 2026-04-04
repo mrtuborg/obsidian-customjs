@@ -430,11 +430,14 @@ class mentionsProcessor {
 
   // NEW: Extract todo text without activity reference
   extractTodoText(todoContent, tagId) {
-    // Remove the activity reference and extract clean todo text
+    // Escape tagId so it is safe to embed in a RegExp (handles names with parens, dots, etc.)
+    const escapedTagId = tagId
+      ? tagId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      : "";
     let todoText = todoContent
       .replace(/^\s*-\s*\[x\]\s*/, "") // Remove completed checkbox
       .replace(/^\s*-\s*\[\s\]\s*/, "") // Remove incomplete checkbox
-      .replace(new RegExp(`\\[\\[.*?${tagId}.*?\\]\\]`, "g"), "") // Remove activity links
+      .replace(escapedTagId ? new RegExp(`\\[\\[.*?${escapedTagId}.*?\\]\\]`, "g") : /(?!x)x/, "") // Remove activity links
       .replace(/\s+/g, " ") // Normalize whitespace
       .trim();
 
@@ -517,43 +520,36 @@ class mentionsProcessor {
       return line;
     }
 
-    // Convert {command} to (command from filename) when copying from other files
-    const directiveRegex = /\{([^}]+)\}/g;
-    let processedLine = line.replace(directiveRegex, (match, directive) => {
-      const processedDirective = `(${directive} from ${sourceFileName})`;
-      // Check if current page already has this exact directive from this file
-      if (currentPageContent.includes(processedDirective)) {
-        // Only log directive skipping for date-based tagIds (daily notes debugging)
-        if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
-          console.log(
-            `Skipping directive ${match} from ${sourceFileName} - already copied from this file`
-          );
-        }
-        return null; // Mark for removal
-      }
+    // If any directive returned null (already present), skip the whole line.
+    // We track this via a sentinel symbol rather than checking for the string "null",
+    // which would incorrectly drop lines containing the word "null" (e.g. null pointer).
+    const NULL_SENTINEL = "\x00DIRECTIVE_REMOVED\x00";
+    let hadRemovedDirective = false;
 
-      // Process the directive immediately before converting to comment
-      // Only log directive processing for date-based tagIds (daily notes debugging)
+    let processedLine2 = line.replace(directiveRegex, (match, directive) => {
+      const processedDirective = `(${directive} from ${sourceFileName})`;
+      if (currentPageContent.includes(processedDirective)) {
+        if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          console.log(`Skipping directive ${match} from ${sourceFileName} - already copied from this file`);
+        }
+        hadRemovedDirective = true;
+        return NULL_SENTINEL;
+      }
       if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        console.log(
-          `Processing directive from ${sourceFileName}: ${directive}`
-        );
+        console.log(`Processing directive from ${sourceFileName}: ${directive}`);
       }
       this.processDirective(directive, frontmatterObj, tagId);
-
-      // Only log directive conversion for date-based tagIds (daily notes debugging)
       if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
         console.log(`Converting directive: ${match} -> ${processedDirective}`);
       }
       return processedDirective;
     });
 
-    // If any directive was marked for removal (null), skip this line
-    if (processedLine && processedLine.includes("null")) {
+    if (hadRemovedDirective) {
       return null;
     }
 
-    return processedLine;
+    return processedLine2;
   }
 
   // Helper function to process a single directive
