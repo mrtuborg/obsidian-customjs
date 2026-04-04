@@ -145,7 +145,11 @@ class mentionsProcessor {
 
     // Group mention blocks by source file for processing (now pre-sorted chronologically)
     let mentionBlocksBySource = {};
-    let addedMentionLines = new Set();
+    // Per-source-date dedup sets: prevent the same block appearing twice within ONE date section
+    // (e.g. a block that is both a direct mention AND hierarchical content).
+    // Using separate sets per source ensures tasks shared across multiple new date sections
+    // are each added to their own section rather than being blocked after the first one.
+    let addedMentionLinesBySource = {};
 
     // Process each mention block using Block system
     for (const mentionBlock of mentionBlocks) {
@@ -157,6 +161,7 @@ class mentionsProcessor {
 
       if (!mentionBlocksBySource[linkPart]) {
         mentionBlocksBySource[linkPart] = [];
+        addedMentionLinesBySource[linkPart] = new Set();
       }
 
       // Process block content based on type
@@ -166,7 +171,7 @@ class mentionsProcessor {
         linkPart,
         currentPageContent,
         currentLines,
-        addedMentionLines
+        addedMentionLinesBySource[linkPart]
       );
 
       if (processedContent && processedContent.length > 0) {
@@ -256,6 +261,14 @@ class mentionsProcessor {
 
     const mentionLines = blockContent.split("\n");
     const normalizedCurrentLines = currentLines.map((l) => l.trim());
+
+    // Check if this source already has a date section in the current content.
+    // If not, it's a brand-new section: skip global text deduplication so that
+    // tasks repeated from older sections still appear under the new date.
+    const sourceSectionExists = currentLines.some(
+      (l) => l.trim() === `[[${sourceFileName}]]`
+    );
+
     let processedLines = [];
 
     for (const line of mentionLines) {
@@ -265,8 +278,14 @@ class mentionsProcessor {
         ? line.replace(/(?<!\!)\[\[.*?\]\]/g, "").trim() // Remove ALL links for comparison only
         : this.normalizeLine(line, tagId);
 
+      // When the source section is brand-new, skip global deduplication — only
+      // guard against duplicates within the current processing run via addedMentionLines.
+      const isNew = sourceSectionExists
+        ? this.isLineNew(normalizedLine, normalizedCurrentLines)
+        : true;
+
       if (
-        this.isLineNew(normalizedLine, normalizedCurrentLines) &&
+        isNew &&
         !addedMentionLines.has(normalizedLine)
       ) {
         // Only log new mentions for date-based tagIds (daily notes debugging)
