@@ -524,6 +524,7 @@ class mentionsProcessor {
     // We track this via a sentinel symbol rather than checking for the string "null",
     // which would incorrectly drop lines containing the word "null" (e.g. null pointer).
     const NULL_SENTINEL = "\x00DIRECTIVE_REMOVED\x00";
+    const directiveRegex = /\{([^}]+)\}/g;
     let hadRemovedDirective = false;
 
     let processedLine2 = line.replace(directiveRegex, (match, directive) => {
