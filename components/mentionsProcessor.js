@@ -59,24 +59,8 @@ class mentionsProcessor {
         return false;
       }
 
-      // DEBUG: Log all blocks being considered for date-based tagIds
-      if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        console.warn(
-          `🔍 DAILY NOTE DEBUG: Checking block from ${
-            block.page
-          } for tagId "${tagId}": "${blockContent.trim().substring(0, 100)}"`
-        );
-      }
-
       // Include blocks that directly contain the tagId
       if (blockContent.includes(tagId)) {
-        if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
-          console.warn(
-            `🎯 DAILY NOTE DEBUG: Found direct mention in ${
-              block.page
-            }: "${blockContent.trim()}"`
-          );
-        }
         return true;
       }
 
@@ -86,13 +70,6 @@ class mentionsProcessor {
         this.isBlockUnderSpecificActivityHeader(block, tagId);
       if (isUnderSpecificActivityHeader) {
         const blockType = block.getAttribute("type") || "unknown";
-        if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
-          console.warn(
-            `🏗️ DAILY NOTE DEBUG: Found hierarchical ${blockType} under specific activity header in ${
-              block.page
-            }: "${blockContent.trim()}"`
-          );
-        }
         return true;
       }
       return false;
