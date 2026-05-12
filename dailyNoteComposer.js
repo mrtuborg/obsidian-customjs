@@ -46,8 +46,14 @@ class dailyNoteComposer {
       }
 
       // Check if this is today's note
-      const pageIsToday = fileIO.isDailyNote(currentPageFile.name);
-      const dailyNoteDate = moment(dv.current().name).format("YYYY-MM-DD");
+      const currentPage = dv.current?.();
+      const currentPageName = (currentPage?.name || currentPageFile.name || "").replace(
+        /\.md$/,
+        ""
+      );
+      const pageIsToday = currentPageName
+        ? fileIO.isDailyNote(currentPageName)
+        : false;
 
       // Parse journal blocks for processing
       const journalPages = dv
@@ -67,7 +73,7 @@ class dailyNoteComposer {
         // Sync activity todos before copying to daily note
         await todoSyncManager.run(app);
 
-        const activities = await activitiesInProgress.run(app, pageContent);
+        const activities = await activitiesInProgress.run(app);
         if (activities && activities.trim().length > 0) {
           pageContent = activities;
         }

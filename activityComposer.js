@@ -26,16 +26,17 @@ class activityComposer {
       let currentPageContent = await fileIO.loadFile(app, currentPageFile.path);
 
       // Initialize frontmatter values
-      const startDateRaw = dv.current().startDate;
+      const currentPage = dv.current?.();
+      const startDateRaw = currentPage?.startDate;
       let startDate = startDateRaw?.toString().format("YYYY-MM-DD");
       if (!startDate) startDate = fileIO.todayDate();
 
-      const rawResponsible = dv.current().responsible;
+      const rawResponsible = currentPage?.responsible;
       let responsible = Array.isArray(rawResponsible)
         ? rawResponsible
         : (rawResponsible ? String(rawResponsible) : "Me");
-      let currentStage = dv.current().stage || "active";
-      let currentType = dv.current().type || null; // Preserve type field
+      let currentStage = currentPage?.stage || "active";
+      let currentType = currentPage?.type || null;
 
       // Generate initial frontmatter
       let frontmatter = fileIO.generateActivityHeader(
