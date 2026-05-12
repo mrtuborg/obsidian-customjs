@@ -177,6 +177,7 @@ class mentionsProcessor {
     // Build new content from processed blocks
     // normalizedCurrentLines is used for the final guard below
     const normalizedCurrentLines = currentLines.map((l) => l.trim());
+    const normalizedCurrentLinesSet = new Set(normalizedCurrentLines);
 
     sortedLinkParts.forEach((linkPart) => {
       const blockDataLength = mentionBlocksBySource[linkPart]
@@ -197,7 +198,7 @@ class mentionsProcessor {
         // This stops duplicate sections forming when unchanged tasks are copied
         // from the same activity into every new daily note.
         const trulyNewMentions = filteredMentions.filter((mentionData) => {
-          return !normalizedCurrentLines.includes(mentionData.trim());
+          return !normalizedCurrentLinesSet.has(mentionData.trim());
         });
 
         if (trulyNewMentions.length > 0) {
@@ -244,7 +245,7 @@ class mentionsProcessor {
     }
 
     const mentionLines = blockContent.split("\n");
-    const normalizedCurrentLines = currentLines.map((l) => l.trim());
+    const normalizedCurrentLinesSet = new Set(currentLines.map((l) => l.trim()));
     let processedLines = [];
 
     for (const line of mentionLines) {
@@ -255,7 +256,7 @@ class mentionsProcessor {
         : this.normalizeLine(line, tagId);
 
       if (
-        this.isLineNew(normalizedLine, normalizedCurrentLines) &&
+        this.isLineNew(normalizedLine, normalizedCurrentLinesSet) &&
         !addedMentionLines.has(normalizedLine)
       ) {
         // Only log new mentions for date-based tagIds (daily notes debugging)
@@ -476,11 +477,11 @@ class mentionsProcessor {
   }
 
   // Helper function to check if a line is new
-  isLineNew(normalizedLine, normalizedCurrentLines) {
+  isLineNew(normalizedLine, normalizedCurrentLinesSet) {
     // Empty lines are never considered "new content" — they are formatting only.
     // Treating them as new caused blank lines to trigger false date-section creation.
     if (normalizedLine === "") return false;
-    return !normalizedCurrentLines.includes(normalizedLine);
+    return !normalizedCurrentLinesSet.has(normalizedLine);
   }
 
   // Helper function to convert directives when copying from other files

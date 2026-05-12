@@ -124,83 +124,55 @@ class activitiesInProgress {
     // ❌ Date Dependency: Requires valid startDate in frontmatter
     // ❌ Type Detection: Requires logic to detect document type
     //
-    // User requirement: Document type priority first, then oldest first, inbox always at bottom
-    filteredActivities.sort((a, b) => {
-      // Get frontmatter for both activities
-      const frontmatterA = app.metadataCache.getFileCache(
-        app.vault.getAbstractFileByPath(a.path)
-      )?.frontmatter;
-      const frontmatterB = app.metadataCache.getFileCache(
-        app.vault.getAbstractFileByPath(b.path)
-      )?.frontmatter;
+    // Pre-fetch metadata for all activities before sorting to avoid
+    // O(n²) cache lookups inside the sort comparator.
+    const getDocumentType = (frontmatter) => {
+      if (frontmatter?.type) return frontmatter.type;
+      if (frontmatter?.stage === "done") return "done";
+      return "project";
+    };
 
-      // Detect document type based on frontmatter type field
-      const getDocumentType = (filePath, frontmatter) => {
-        // Check type field in frontmatter first
-        if (frontmatter?.type) {
-          return frontmatter.type;
-        }
+    const typePriority = {
+      project: 1,
+      inbox: 999,
+    };
 
-        // Check stage field for backward compatibility
-        if (frontmatter?.stage === "done") {
-          return "done";
-        }
+    const activitiesWithMeta = filteredActivities.map((activity) => {
+      const fm = activity.frontmatter;
+      const docType = getDocumentType(fm);
+      const priority = typePriority[docType] || 50;
+      const startDate = moment(fm?.startDate, "YYYY-MM-DD");
+      const filename = activity.path
+        .split("/")
+        .pop()
+        .replace(/\.[^/.]+$/, "")
+        .toLowerCase();
+      return { activity, priority, startDate, filename };
+    });
 
-        // Default: everything else is project type
-        return "project";
-      };
-
-      // Define document type priority order (lower number = higher priority = appears first)
-      const typePriority = {
-        project: 1, // Обычные проекты и активности - в начале
-        inbox: 999, // "План на сегодня.md" - всегда в конце
-        // done: не попадает в Daily Notes (отфильтровывается)
-      };
-
-      const typeA = getDocumentType(a.path, frontmatterA);
-      const typeB = getDocumentType(b.path, frontmatterB);
-      const priorityA = typePriority[typeA] || 50; // Default priority for unknown types
-      const priorityB = typePriority[typeB] || 50;
-
+    activitiesWithMeta.sort((a, b) => {
       // First sort by document type priority
-      if (priorityA !== priorityB) {
-        return priorityA - priorityB; // Lower priority number comes first
+      if (a.priority !== b.priority) {
+        return a.priority - b.priority;
       }
 
       // Within same type, sort by startDate (oldest first)
-      const startDateA = moment(frontmatterA?.startDate, "YYYY-MM-DD");
-      const startDateB = moment(frontmatterB?.startDate, "YYYY-MM-DD");
-
-      if (startDateA.isValid() && startDateB.isValid()) {
-        // Both dates valid - older date comes first
-        return startDateA.isBefore(startDateB)
+      if (a.startDate.isValid() && b.startDate.isValid()) {
+        return a.startDate.isBefore(b.startDate)
           ? -1
-          : startDateA.isAfter(startDateB)
+          : a.startDate.isAfter(b.startDate)
           ? 1
           : 0;
-      } else if (startDateA.isValid() && !startDateB.isValid()) {
-        // A has valid date, B doesn't - A comes first
+      } else if (a.startDate.isValid() && !b.startDate.isValid()) {
         return -1;
-      } else if (!startDateA.isValid() && startDateB.isValid()) {
-        // B has valid date, A doesn't - B comes first
+      } else if (!a.startDate.isValid() && b.startDate.isValid()) {
         return 1;
       } else {
-        // Neither has valid date - fallback to alphabetical by filename
-        const filenameA = a.path
-          .split("/")
-          .pop()
-          .replace(/\.[^/.]+$/, "")
-          .toLowerCase();
-        const filenameB = b.path
-          .split("/")
-          .pop()
-          .replace(/\.[^/.]+$/, "")
-          .toLowerCase();
-        return filenameA.localeCompare(filenameB);
+        return a.filename.localeCompare(b.filename);
       }
     });
 
-    return filteredActivities;
+    return activitiesWithMeta.map((item) => item.activity);
   }
 
   /**
