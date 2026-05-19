@@ -58,6 +58,20 @@ class activitiesInProgress {
           "YYYY-MM-DD"
         )
       ) {
+        // Filter by remind field — controls which days this activity appears
+        const remind = frontmatter.remind || "daily";
+        const dayOfWeek = moment(currentDateString, "YYYY-MM-DD").day(); // 0=Sun, 1=Mon, ..., 6=Sat
+        const visible = (() => {
+          switch (remind) {
+            case "weekdays": return dayOfWeek >= 1 && dayOfWeek <= 5;
+            case "weekends": return dayOfWeek === 0 || dayOfWeek === 6;
+            case "monday":   return dayOfWeek === 1;
+            case "friday":   return dayOfWeek === 5;
+            default:         return true; // "daily" or unknown value
+          }
+        })();
+        if (!visible) continue;
+
         // Extract todos from this file's blocks
         const fileBlocks = blocksByFile[filePath];
         const todoBlocks = fileBlocks.filter(
@@ -81,12 +95,24 @@ class activitiesInProgress {
           return taskName && !completedTaskNames.has(taskName);
         });
 
+        // Filter to only include todos inside the ## Journal section.
+        // Done when checkboxes (above ## Journal) are acceptance criteria, not daily tasks.
+        const abstractFile = app.vault.getAbstractFileByPath(filePath);
+        const rawContent = await app.vault.read(abstractFile);
+        const journalHeadingIdx = rawContent.indexOf('\n## Journal');
+        const journalSection = journalHeadingIdx >= 0
+          ? rawContent.substring(journalHeadingIdx)
+          : rawContent; // fallback: no Journal section, include all todos
+        const journalTodos = incompleteTodoBlocks.filter((todoBlock) => {
+          return journalSection.includes(todoBlock.content.trim());
+        });
+
         // Store activity with its todos
         filteredActivities.push({
           path: filePath,
           stage: frontmatter.stage,
           frontmatter: frontmatter,
-          todoBlocks: incompleteTodoBlocks,
+          todoBlocks: journalTodos,
         });
       }
     }
@@ -137,26 +163,34 @@ class activitiesInProgress {
       inbox: 999,
     };
 
+    const userPriorityOrder = { high: 1, medium: 2, low: 3 };
+
     const activitiesWithMeta = filteredActivities.map((activity) => {
       const fm = activity.frontmatter;
       const docType = getDocumentType(fm);
       const priority = typePriority[docType] || 50;
+      const userPriority = userPriorityOrder[fm?.priority?.toString()] ?? 2;
       const startDate = moment(fm?.startDate, "YYYY-MM-DD");
       const filename = activity.path
         .split("/")
         .pop()
         .replace(/\.[^/.]+$/, "")
         .toLowerCase();
-      return { activity, priority, startDate, filename };
+      return { activity, priority, userPriority, startDate, filename };
     });
 
     activitiesWithMeta.sort((a, b) => {
-      // First sort by document type priority
+      // First sort by document type priority (project vs inbox)
       if (a.priority !== b.priority) {
         return a.priority - b.priority;
       }
 
-      // Within same type, sort by startDate (oldest first)
+      // Second: sort by user priority (high → medium → low)
+      if (a.userPriority !== b.userPriority) {
+        return a.userPriority - b.userPriority;
+      }
+
+      // Within same type and priority, sort by startDate (oldest first)
       if (a.startDate.isValid() && b.startDate.isValid()) {
         return a.startDate.isBefore(b.startDate)
           ? -1

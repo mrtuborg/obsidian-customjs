@@ -66,7 +66,7 @@ class fileIO {
     return currentDate.toISOString().split("T")[0];
   }
 
-  generateActivityHeader(date, stage, responsible, type = null) {
+  generateActivityHeader(date, stage, responsible, type = null, extraFields = {}) {
     // Convert date to proper format
     let formattedDate = moment(date).format("YYYY-MM-DD");
 
@@ -112,6 +112,24 @@ class fileIO {
     }
 
     headerLines.push(`responsible: [${responsible}]`);
+
+    // Append extra custom fields (priority, remind, context_refs, wiki, etc.)
+    // These are preserved as-is so no known fields are silently dropped.
+    for (const [key, value] of Object.entries(extraFields)) {
+      if (value === null || value === undefined) continue;
+      if (typeof value === "string" && value.trim() === "") continue;
+      if (Array.isArray(value)) {
+        if (value.length === 0) {
+          headerLines.push(`${key}: []`);
+        } else {
+          headerLines.push(`${key}:`);
+          value.forEach((v) => headerLines.push(`  - ${v}`));
+        }
+      } else {
+        headerLines.push(`${key}: ${value}`);
+      }
+    }
+
     headerLines.push("---");
 
     return headerLines.join("\n");
@@ -134,6 +152,106 @@ class fileIO {
     ];
 
     return headerLines.join("\n");
+  }
+
+  /**
+   * Parse a single frontmatter field value from raw file content.
+   * Returns the raw string value, or null if not found.
+   * More reliable than metadata cache which may be stale during DataviewJS re-render.
+   */
+  parseFrontmatterField(content, fieldName) {
+    if (!content || typeof content !== "string") return null;
+    const lines = content.split("\n");
+    if (!lines[0] || lines[0].trim() !== "---") return null;
+    // Escape regex meta-characters in field name
+    const escapedName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`^${escapedName}:\\s*(.+)$`);
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i].trim() === "---") break;
+      const match = lines[i].match(pattern);
+      if (match) return match[1].trim();
+    }
+    return null;
+  }
+
+  /**
+   * Parse non-standard frontmatter fields from raw file content.
+   * Handles scalar values, inline YAML sequences ([a, b]), and block YAML lists (- item).
+   * More reliable than metadata cache which may be stale during DataviewJS re-render.
+   *
+   * @param {string} content - Raw file content
+   * @param {Set} standardFields - Field names to exclude (they are managed explicitly)
+   * @returns {Object} Map of extra field names to their values (string or string[])
+   */
+  parseExtraFrontmatterFields(content, standardFields) {
+    if (!content || typeof content !== "string") return {};
+    const lines = content.split("\n");
+    const extraFields = {};
+
+    if (!lines[0] || lines[0].trim() !== "---") return extraFields;
+
+    let endLine = -1;
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i].trim() === "---") { endLine = i; break; }
+    }
+    if (endLine === -1) return extraFields;
+
+    let currentKey = null;
+    let currentIsArray = false;
+
+    for (let i = 1; i < endLine; i++) {
+      const line = lines[i];
+
+      // Block list item (indented with spaces/tabs, starts with "- ")
+      if (currentIsArray && currentKey && /^\s+-\s/.test(line)) {
+        const itemVal = line.replace(/^\s+-\s/, "").trim();
+        if (!Array.isArray(extraFields[currentKey])) extraFields[currentKey] = [];
+        extraFields[currentKey].push(itemVal);
+        continue;
+      }
+
+      // Key: value line
+      const kvMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)$/);
+      if (!kvMatch) {
+        // Non-key, non-list-item line resets array state
+        currentIsArray = false;
+        currentKey = null;
+        continue;
+      }
+
+      const key = kvMatch[1];
+      const rawVal = kvMatch[2].trim();
+
+      currentIsArray = false;
+      currentKey = null;
+
+      if (standardFields.has(key)) continue;
+
+      if (rawVal === "") {
+        // Possibly a block list — peek at the next line to decide
+        const nextLine = i + 1 < endLine ? lines[i + 1] : "";
+        if (/^\s+-\s/.test(nextLine)) {
+          // Next line is a list item → start collecting as array
+          extraFields[key] = [];
+          currentKey = key;
+          currentIsArray = true;
+        } else {
+          // Empty scalar (null-like) → preserve as empty string, not array
+          extraFields[key] = "";
+        }
+      } else if (rawVal.startsWith("[") && rawVal.endsWith("]")) {
+        // Inline YAML sequence: [Me] or [tag1, tag2]
+        const inner = rawVal.slice(1, -1);
+        extraFields[key] = inner.length === 0
+          ? []
+          : inner.split(",").map(s => s.trim()).filter(Boolean);
+      } else {
+        extraFields[key] = rawVal;
+        currentKey = key;
+      }
+    }
+
+    return extraFields;
   }
 
   extractFrontmatterAndDataviewJs(content) {

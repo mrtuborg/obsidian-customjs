@@ -25,25 +25,49 @@ class activityComposer {
       // Load current page content
       let currentPageContent = await fileIO.loadFile(app, currentPageFile.path);
 
-      // Initialize frontmatter values
-      const currentPage = dv.current?.();
-      const startDateRaw = currentPage?.startDate;
-      let startDate = startDateRaw?.toString().format("YYYY-MM-DD");
+      // Read all standard frontmatter fields from file content.
+      // DataView's dv.current() and the metadata cache can both be stale during
+      // a re-render triggered by a previous save, causing fields to revert to
+      // defaults or wrong values. File content is always the ground truth.
+      const STANDARD_FIELDS = new Set(["startDate", "stage", "responsible", "type", "position"]);
+
+      let startDate = fileIO.parseFrontmatterField(currentPageContent, "startDate");
       if (!startDate) startDate = fileIO.todayDate();
+      // Normalise to YYYY-MM-DD via moment (guards against e.g. ISO timestamps in the file)
+      const normalizedDate = moment(startDate, "YYYY-MM-DD", true).isValid()
+        ? startDate
+        : moment(startDate).format("YYYY-MM-DD");
+      if (normalizedDate && normalizedDate !== "Invalid date") startDate = normalizedDate;
 
-      const rawResponsible = currentPage?.responsible;
-      let responsible = Array.isArray(rawResponsible)
-        ? rawResponsible
-        : (rawResponsible ? String(rawResponsible) : "Me");
-      let currentStage = currentPage?.stage || "active";
-      let currentType = currentPage?.type || null;
+      let currentStage = fileIO.parseFrontmatterField(currentPageContent, "stage") || "active";
+      let currentType = fileIO.parseFrontmatterField(currentPageContent, "type") || null;
 
-      // Generate initial frontmatter
+      // Responsible: parse inline YAML sequence [Name] or plain string
+      const responsibleStr = fileIO.parseFrontmatterField(currentPageContent, "responsible");
+      let responsible;
+      if (responsibleStr && responsibleStr.startsWith("[") && responsibleStr.endsWith("]")) {
+        const inner = responsibleStr.slice(1, -1);
+        responsible = inner.length === 0
+          ? ["Me"]
+          : inner.split(",").map(s => s.trim()).filter(Boolean);
+      } else {
+        responsible = responsibleStr || "Me";
+      }
+
+      // Collect all custom frontmatter fields by parsing file content.
+      // This avoids the metadata-cache timing race where the cache returns {} while
+      // Obsidian is still processing a file that was just saved by this script.
+      const extraFields = fileIO.parseExtraFrontmatterFields(currentPageContent, STANDARD_FIELDS);
+
+      // dv.current() no longer needed for frontmatter — only dv.pages() is used below.
+
+      // Generate initial frontmatter — standard fields + preserved custom fields
       let frontmatter = fileIO.generateActivityHeader(
         startDate,
         currentStage,
         responsible,
-        currentType
+        currentType,
+        extraFields
       );
 
       // Remove the generated header from currentPageContent
@@ -106,12 +130,13 @@ class activityComposer {
       currentStage = frontmatterObj.stage;
       startDate = frontmatterObj.startDate;
 
-      // Update frontmatter with processed attributes
+      // Update frontmatter with processed attributes (preserve custom fields)
       frontmatter = fileIO.generateActivityHeader(
         startDate,
         currentStage,
         responsible,
-        currentType
+        currentType,
+        extraFields
       );
 
       // Update contentAfterDataview with processed content (directives converted to comments)
@@ -130,12 +155,13 @@ class activityComposer {
         contentAfterDataview = mentions;
       }
 
-      // Update frontmatter again after mentions processing (in case directives from other files changed it)
+      // Update frontmatter again after mentions processing (preserve custom fields)
       frontmatter = fileIO.generateActivityHeader(
         frontmatterObj.startDate,
         frontmatterObj.stage,
         frontmatterObj.responsible,
-        frontmatterObj.type
+        frontmatterObj.type,
+        extraFields
       );
 
       // Combine and save content
