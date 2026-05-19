@@ -43,12 +43,17 @@ class activitiesInProgress {
     const filteredActivities = [];
 
     for (const filePath of Object.keys(blocksByFile)) {
-      // Get frontmatter for this activity file
-      const frontmatter = app.metadataCache.getFileCache(
-        app.vault.getAbstractFileByPath(filePath)
-      )?.frontmatter;
+      const abstractFile = app.vault.getAbstractFileByPath(filePath);
+      if (!abstractFile) continue;
 
-      if (!frontmatter || !frontmatter.stage) continue;
+      // Read raw file content once — used for both frontmatter and ## Journal
+      // filtering.  Reading from disk (not metadataCache) makes this immune to
+      // the cache timing race and ensures auto-created files (created in the
+      // same pipeline run by autoActivityCreator) are visible immediately.
+      const rawContent = await app.vault.read(abstractFile);
+      const frontmatter = this.parseFrontmatterFromContent(rawContent);
+
+      if (!frontmatter.stage) continue;
 
       // Check if the activity is in progress or not done
       if (
@@ -97,8 +102,6 @@ class activitiesInProgress {
 
         // Filter to only include todos inside the ## Journal section.
         // Done when checkboxes (above ## Journal) are acceptance criteria, not daily tasks.
-        const abstractFile = app.vault.getAbstractFileByPath(filePath);
-        const rawContent = await app.vault.read(abstractFile);
         const journalHeadingIdx = rawContent.indexOf('\n## Journal');
         const journalSection = journalHeadingIdx >= 0
           ? rawContent.substring(journalHeadingIdx)
@@ -207,6 +210,29 @@ class activitiesInProgress {
     });
 
     return activitiesWithMeta.map((item) => item.activity);
+  }
+
+  /**
+   * Parses frontmatter fields directly from raw file content.
+   * This avoids the metadataCache timing race and allows newly created files
+   * (e.g. from autoActivityCreator) to be read in the same pipeline run.
+   * @param {string} content - Raw file content
+   * @returns {Object} Object with stage, startDate, remind, type, priority
+   */
+  parseFrontmatterFromContent(content) {
+    if (!content) return {};
+    const parseField = (name) => {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const m = content.match(new RegExp(`^${escaped}:\\s*(.+)$`, "m"));
+      return m ? m[1].trim() : null;
+    };
+    return {
+      stage:     parseField("stage"),
+      startDate: parseField("startDate"),
+      remind:    parseField("remind"),
+      type:      parseField("type"),
+      priority:  parseField("priority"),
+    };
   }
 
   /**

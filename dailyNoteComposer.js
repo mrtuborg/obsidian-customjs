@@ -22,6 +22,7 @@ class dailyNoteComposer {
         fileIO,
         noteBlocksParser,
         todoSyncManager,
+        autoActivityCreator,
         activitiesInProgress,
         mentionsProcessor,
         scriptsRemove,
@@ -70,6 +71,11 @@ class dailyNoteComposer {
 
       // Add activities in progress (only for today's note)
       if (pageIsToday) {
+        // Auto-create Activity files for any unresolved wikilinks in the
+        // previous journal entry — handles the case where the user wrote a
+        // mention but forgot to click it to create the file.
+        await autoActivityCreator.run(app, dv);
+
         // Sync activity todos before copying to daily note
         await todoSyncManager.run(app);
 
