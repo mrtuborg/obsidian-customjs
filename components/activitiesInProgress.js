@@ -28,16 +28,23 @@ class activitiesInProgress {
 
     if (activityFiles.length === 0) return [];
 
-    // Read ALL files in parallel — the single biggest latency win on mobile
-    const rawContents = await Promise.all(
+    // Read ALL files in parallel — the single biggest latency win on mobile.
+    // Promise.allSettled (not Promise.all) ensures one unreadable file does NOT
+    // crash the entire pipeline; failed reads are simply skipped below.
+    const readResults = await Promise.allSettled(
       activityFiles.map((f) => app.vault.read(f))
     );
 
     const filteredActivities = [];
 
     for (let i = 0; i < activityFiles.length; i++) {
+      const result = readResults[i];
+      if (result.status === "rejected") {
+        console.warn(`activitiesInProgress: could not read ${activityFiles[i].path}:`, result.reason);
+        continue;
+      }
       const file = activityFiles[i];
-      const rawContent = rawContents[i];
+      const rawContent = result.value;
       const frontmatter = this.parseFrontmatterFromContent(rawContent);
 
       if (!frontmatter.stage) continue;
@@ -57,12 +64,15 @@ class activitiesInProgress {
       })();
       if (!visible) continue;
 
-      // Isolate ## Journal section — acceptance criteria ("## Done when") excluded
-      const journalHeadingIdx = rawContent.indexOf("\n## Journal");
-      const journalSection =
-        journalHeadingIdx >= 0
-          ? rawContent.substring(journalHeadingIdx)
-          : rawContent; // fallback: no Journal section
+      // Isolate ## Journal section — acceptance criteria ("## Done when") excluded.
+      // Use regex so `## Journal` is found whether or not it has a leading newline
+      // (guards against the edge case where it is the very first line of the file).
+      const journalMatch = rawContent.match(/(^|\n)(## Journal\b)/);
+      const journalSection = journalMatch
+        ? rawContent.substring(rawContent.indexOf(journalMatch[2], journalMatch.index))
+            // Clip at the next ## heading so sections added AFTER ## Journal are excluded
+            .replace(/\n## [^\n]+[\s\S]*$/, "")
+        : ""; // no Journal section → no todos
 
       // Calendar-principle: task state is determined by its MOST RECENT date-bucket.
       // A task marked [x] on May 1 but reopened [ ] on May 10 → shown as open.
@@ -237,7 +247,9 @@ class activitiesInProgress {
       if (openMatch) {
         const taskText = openMatch[1].trim();
         const existing = latestStates.get(taskText);
-        if (!existing || currentDateValue >= existing.dateValue) {
+        // Strict `>` (not `>=`): first occurrence within the same date-bucket wins.
+        // This is deterministic regardless of how many times mentionsProcessor ran.
+        if (!existing || currentDateValue > existing.dateValue) {
           latestStates.set(taskText, { state: "open", dateValue: currentDateValue });
         }
         continue;
@@ -248,7 +260,7 @@ class activitiesInProgress {
       if (doneMatch) {
         const taskText = doneMatch[1].trim();
         const existing = latestStates.get(taskText);
-        if (!existing || currentDateValue >= existing.dateValue) {
+        if (!existing || currentDateValue > existing.dateValue) {
           latestStates.set(taskText, { state: "done", dateValue: currentDateValue });
         }
       }

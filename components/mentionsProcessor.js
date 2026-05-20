@@ -389,22 +389,46 @@ class mentionsProcessor {
     // Split journalBody into buckets.  A bucket runs from one `----` to the next
     // (exclusive).  Leading content before the first `----` goes into a special
     // "preamble" bucket.
-    const buckets = []; // each bucket: { date: moment|null, lines: string[] }
+    //
+    // Buckets with the same date are MERGED so that duplicate date sections
+    // (e.g. produced when mentionsProcessor ran twice for the same day) never
+    // cause non-deterministic todo-state resolution in getLatestTodoStates().
+    const bucketMap = new Map(); // dateKey → { date, lines[] }  (insertion-ordered)
+    const UNDATED_KEY = "__undated__";
     let currentBucketLines = [];
 
     const flushBucket = () => {
       if (currentBucketLines.length === 0) return;
       // Find a date anchor in this bucket
       let date = null;
+      let dateKey = UNDATED_KEY;
       for (const l of currentBucketLines) {
         const m = DATE_PATTERN.exec(l);
         if (m) {
-          date = moment(m[1], "YYYY-MM-DD", true);
-          if (!date.isValid()) date = null;
+          const d = moment(m[1], "YYYY-MM-DD", true);
+          if (d.isValid()) {
+            date = d;
+            dateKey = m[1]; // "YYYY-MM-DD" string — stable map key
+          }
           break;
         }
       }
-      buckets.push({ date, lines: currentBucketLines });
+
+      if (bucketMap.has(dateKey)) {
+        // Merge into existing bucket: append lines (skip duplicate date-anchor line)
+        const existing = bucketMap.get(dateKey);
+        const existingText = new Set(existing.lines.map((l) => l.trim()));
+        for (const l of currentBucketLines) {
+          // Skip lines already present (dedup) and the redundant [[YYYY-MM-DD]] anchor
+          const trimmed = l.trim();
+          if (!existingText.has(trimmed)) {
+            existing.lines.push(l);
+            existingText.add(trimmed);
+          }
+        }
+      } else {
+        bucketMap.set(dateKey, { date, lines: currentBucketLines });
+      }
       currentBucketLines = [];
     };
 
@@ -418,7 +442,9 @@ class mentionsProcessor {
     }
     flushBucket(); // flush trailing bucket (no trailing `----`)
 
-    // Sort: undated buckets first (treated as epoch 0), then ascending by date
+    // Convert map values to array and sort:
+    // undated buckets first (epoch 0), then ascending by date.
+    const buckets = Array.from(bucketMap.values());
     buckets.sort((a, b) => {
       const ta = a.date ? a.date.valueOf() : 0;
       const tb = b.date ? b.date.valueOf() : 0;
