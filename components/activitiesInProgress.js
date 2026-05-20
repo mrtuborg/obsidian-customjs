@@ -1,119 +1,87 @@
 class activitiesInProgress {
   /**
-   * OPTIMIZED: Parse all activity files once and filter activities with their todos
+   * Filter activities and collect open todo items.
+   *
+   * Performance design:
+   *  • All activity files are read in PARALLEL with Promise.all (was: sequential)
+   *  • noteBlocksParser is NOT called on activity files — raw text is sufficient
+   *    for both frontmatter and todo-state extraction
+   *  • todoSyncManager is NOT needed; todo states come from the Activity file's
+   *    own ## Journal section via getLatestTodoStates (calendar principle)
+   *
    * @param {Object} app - Obsidian app instance
    * @returns {Promise<Array>} Array of activity objects with parsed todos
    */
   async filterActivitiesWithTodos(app) {
-    const currentDate = new Date();
-    const currentDateString = currentDate.toISOString().split("T")[0];
+    const currentDateString = new Date().toISOString().split("T")[0];
+    const currentMoment = moment(currentDateString, "YYYY-MM-DD");
+    const dayOfWeek = currentMoment.day(); // 0=Sun … 6=Sat
 
-    // Get all activity files using vault API
-    const activitiesFolder = "Activities";
-    const archiveFolder = activitiesFolder + "/Archive";
+    // Collect active (non-archived) activity files
     const activityFiles = app.vault
       .getFiles()
       .filter(
-        (file) =>
-          file.path.startsWith(activitiesFolder) &&
-          !file.path.startsWith(archiveFolder)
+        (f) =>
+          f.path.startsWith("Activities") &&
+          !f.path.startsWith("Activities/Archive")
       );
 
     if (activityFiles.length === 0) return [];
 
-    // Parse all activity files into Blocks ONCE - OPTIMIZED APPROACH
-    const cjs = await cJS();
-    const noteBlocksParser = cjs.createnoteBlocksParserInstance();
-    const allActivityBlocks = await noteBlocksParser.run(
-      app,
-      activityFiles.map((file) => ({ file })),
-      null // No date format restriction for activity files
+    // Read ALL files in parallel — the single biggest latency win on mobile
+    const rawContents = await Promise.all(
+      activityFiles.map((f) => app.vault.read(f))
     );
 
-    // Group blocks by file path for efficient processing
-    const blocksByFile = {};
-    for (const block of allActivityBlocks.blocks) {
-      if (!blocksByFile[block.page]) {
-        blocksByFile[block.page] = [];
-      }
-      blocksByFile[block.page].push(block);
-    }
-
-    // Filter activities and extract todos in one pass
     const filteredActivities = [];
 
-    for (const filePath of Object.keys(blocksByFile)) {
-      const abstractFile = app.vault.getAbstractFileByPath(filePath);
-      if (!abstractFile) continue;
-
-      // Read raw file content once — used for both frontmatter and ## Journal
-      // filtering.  Reading from disk (not metadataCache) makes this immune to
-      // the cache timing race and ensures auto-created files (created in the
-      // same pipeline run by autoActivityCreator) are visible immediately.
-      const rawContent = await app.vault.read(abstractFile);
+    for (let i = 0; i < activityFiles.length; i++) {
+      const file = activityFiles[i];
+      const rawContent = rawContents[i];
       const frontmatter = this.parseFrontmatterFromContent(rawContent);
 
       if (!frontmatter.stage) continue;
+      if (frontmatter.stage === "done") continue;
+      if (!moment(frontmatter.startDate, "YYYY-MM-DD").isSameOrBefore(currentMoment)) continue;
 
-      // Check if the activity is in progress or not done
-      if (
-        frontmatter.stage !== "done" &&
-        moment(frontmatter.startDate, "YYYY-MM-DD").isSameOrBefore(
-          currentDateString,
-          "YYYY-MM-DD"
-        )
-      ) {
-        // Filter by remind field — controls which days this activity appears
-        const remind = frontmatter.remind || "daily";
-        const dayOfWeek = moment(currentDateString, "YYYY-MM-DD").day(); // 0=Sun, 1=Mon, ..., 6=Sat
-        const visible = (() => {
-          switch (remind) {
-            case "weekdays": return dayOfWeek >= 1 && dayOfWeek <= 5;
-            case "weekends": return dayOfWeek === 0 || dayOfWeek === 6;
-            case "monday":   return dayOfWeek === 1;
-            case "friday":   return dayOfWeek === 5;
-            default:         return true; // "daily" or unknown value
-          }
-        })();
-        if (!visible) continue;
+      // Remind filter — controls which days this activity appears
+      const remind = frontmatter.remind || "daily";
+      const visible = (() => {
+        switch (remind) {
+          case "weekdays": return dayOfWeek >= 1 && dayOfWeek <= 5;
+          case "weekends": return dayOfWeek === 0 || dayOfWeek === 6;
+          case "monday":   return dayOfWeek === 1;
+          case "friday":   return dayOfWeek === 5;
+          default:         return true; // "daily" or unknown value
+        }
+      })();
+      if (!visible) continue;
 
-        // Extract todos from this file's blocks
-        const fileBlocks = blocksByFile[filePath];
-        const todoBlocks = fileBlocks.filter(
-          (block) => block.getAttribute("type") === "todo"
-        );
-
-        // Isolate the ## Journal section (raw text) — acceptance criteria in
-        // "## Done when" are excluded; they are not recurring daily tasks.
-        const journalHeadingIdx = rawContent.indexOf('\n## Journal');
-        const journalSection = journalHeadingIdx >= 0
+      // Isolate ## Journal section — acceptance criteria ("## Done when") excluded
+      const journalHeadingIdx = rawContent.indexOf("\n## Journal");
+      const journalSection =
+        journalHeadingIdx >= 0
           ? rawContent.substring(journalHeadingIdx)
-          : rawContent; // fallback: no Journal section, include all todos
+          : rawContent; // fallback: no Journal section
 
-        // Calendar-principle: for each task text, keep the state from the MOST
-        // RECENT date-section in the Journal.  This lets recurring tasks reappear
-        // after they are reopened on a later date.
-        const latestStates = this.getLatestTodoStates(journalSection);
+      // Calendar-principle: task state is determined by its MOST RECENT date-bucket.
+      // A task marked [x] on May 1 but reopened [ ] on May 10 → shown as open.
+      const latestStates = this.getLatestTodoStates(journalSection);
 
-        // A task is shown when:
-        //   • it has no recorded state at all (brand-new mention), OR
-        //   • its most-recent state is open ([ ])
-        const journalTodos = todoBlocks.filter((todoBlock) => {
-          const taskName = this.extractTaskNameFromBlock(todoBlock);
-          if (!taskName) return false;
-          if (!journalSection.includes(todoBlock.content.trim())) return false;
-          const entry = latestStates.get(taskName);
-          return !entry || entry.state === "open";
-        });
-
-        // Store activity with its todos
-        filteredActivities.push({
-          path: filePath,
-          stage: frontmatter.stage,
-          frontmatter: frontmatter,
-          todoBlocks: journalTodos,
-        });
+      // Build synthetic todo items for open tasks only
+      const todoBlocks = [];
+      for (const [taskText, entry] of latestStates.entries()) {
+        if (entry.state === "open") {
+          todoBlocks.push({ content: `- [ ] ${taskText}` });
+        }
       }
+
+      filteredActivities.push({
+        path: file.path,
+        stage: frontmatter.stage,
+        frontmatter,
+        todoBlocks,
+      });
     }
 
     if (filteredActivities.length === 0) return [];
@@ -229,26 +197,6 @@ class activitiesInProgress {
       type:      parseField("type"),
       priority:  parseField("priority"),
     };
-  }
-
-  /**
-   * Helper method to extract task name from Block content
-   * @param {Block} block - Block object containing todo/done content
-   * @returns {string|null} Extracted task name or null
-   */
-  extractTaskNameFromBlock(block) {
-    if (!block || !block.content) return null;
-
-    const content = block.content.trim();
-
-    // Handle both todo and done patterns
-    if (content.startsWith("- [ ]")) {
-      return content.substring(6).trim();
-    } else if (content.startsWith("- [x]")) {
-      return content.substring(6).trim();
-    }
-
-    return null;
   }
 
   /**

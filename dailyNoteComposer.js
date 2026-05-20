@@ -21,7 +21,6 @@ class dailyNoteComposer {
       const {
         fileIO,
         noteBlocksParser,
-        todoSyncManager,
         autoActivityCreator,
         activitiesInProgress,
         mentionsProcessor,
@@ -56,10 +55,18 @@ class dailyNoteComposer {
         ? fileIO.isDailyNote(currentPageName)
         : false;
 
-      // Parse journal blocks for processing
+      // Parse journal blocks for processing.
+      // Only include the last 90 days — older entries are never needed for
+      // mention processing of a new note, and bounding the set prevents
+      // unbounded growth as the vault accumulates daily notes over time.
+      const cutoff = moment().subtract(90, "days").startOf("day");
       const journalPages = dv
         .pages('"Journal"')
-        .filter((page) => !page.file.path.trim().includes(title));
+        .filter((page) => {
+          if (page.file.path.trim().includes(title)) return false;
+          const d = moment(page.file.name, "YYYY-MM-DD", true);
+          return d.isValid() && d.isSameOrAfter(cutoff);
+        });
       const allBlocks = await noteBlocksParser.run(
         app,
         journalPages,
@@ -76,8 +83,13 @@ class dailyNoteComposer {
         // mention but forgot to click it to create the file.
         await autoActivityCreator.run(app, dv);
 
-        // Sync activity todos before copying to daily note
-        await todoSyncManager.run(app);
+        // todoSyncManager (vault.modify per activity) has been removed:
+        //  • It triggered O(N × M) I/O (N activities × M journal reads each)
+        //  • The async DataviewJS re-render was unreliable (not guaranteed to
+        //    complete before activitiesInProgress.run)
+        //  • activitiesInProgress now reads todo states directly from each
+        //    Activity file's raw ## Journal section (calendar-principle), so
+        //    no pre-sync step is needed.
 
         const activities = await activitiesInProgress.run(app);
         if (activities && activities.trim().length > 0) {
