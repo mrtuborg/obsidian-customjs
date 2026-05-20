@@ -215,7 +215,14 @@ class mentionsProcessor {
 
     // Insert the new mention blocks
     currentLines.splice(insertIndex, 0, ...newContent);
-    return currentLines.join("\n");
+
+    // Re-sort the entire Journal section to guarantee chronological order.
+    // This handles:
+    //   • initial Activity creation (all sections built at once)
+    //   • backfilled past dates (a journal entry written for an older date)
+    //   • any prior incorrect ordering already present in the file
+    const sortedLines = this.sortJournalSection(currentLines);
+    return sortedLines.join("\n");
   }
 
   // NEW: Block-based content processing
@@ -343,6 +350,91 @@ class mentionsProcessor {
         this.updateTodoState(currentLines, todoText, completedTodo.page, tagId);
       }
     }
+  }
+
+  /**
+   * Sort the `## Journal` section of an Activity file so entries appear in
+   * chronological order (oldest date first).
+   *
+   * Strategy:
+   *   1. Leave everything before `## Journal` untouched.
+   *   2. Split the Journal section into date-buckets delimited by `----` separators.
+   *      Each bucket starts with a `[[YYYY-MM-DD]]` anchor line.
+   *   3. Sort buckets by their date (ascending).
+   *   4. Buckets with no recognised date are moved to the top (oldest fallback).
+   *   5. Reassemble: preamble + sorted buckets + everything after Journal.
+   */
+  sortJournalSection(lines) {
+    const JOURNAL_HEADER = /^## Journal\s*$/;
+    const DATE_PATTERN = /\[\[(\d{4}-\d{2}-\d{2})\]\]/;
+    const SEPARATOR = /^----\s*$/;
+
+    // Find `## Journal` line
+    const journalIdx = lines.findIndex((l) => JOURNAL_HEADER.test(l));
+    if (journalIdx === -1) return lines; // No Journal section — nothing to sort
+
+    // Find where the Journal section ends (next `##` header at same or higher level)
+    let journalEnd = lines.length;
+    for (let i = journalIdx + 1; i < lines.length; i++) {
+      if (/^## /.test(lines[i])) {
+        journalEnd = i;
+        break;
+      }
+    }
+
+    const preamble = lines.slice(0, journalIdx + 1); // up to and including `## Journal`
+    const afterJournal = lines.slice(journalEnd);
+    const journalBody = lines.slice(journalIdx + 1, journalEnd);
+
+    // Split journalBody into buckets.  A bucket runs from one `----` to the next
+    // (exclusive).  Leading content before the first `----` goes into a special
+    // "preamble" bucket.
+    const buckets = []; // each bucket: { date: moment|null, lines: string[] }
+    let currentBucketLines = [];
+
+    const flushBucket = () => {
+      if (currentBucketLines.length === 0) return;
+      // Find a date anchor in this bucket
+      let date = null;
+      for (const l of currentBucketLines) {
+        const m = DATE_PATTERN.exec(l);
+        if (m) {
+          date = moment(m[1], "YYYY-MM-DD", true);
+          if (!date.isValid()) date = null;
+          break;
+        }
+      }
+      buckets.push({ date, lines: currentBucketLines });
+      currentBucketLines = [];
+    };
+
+    for (const line of journalBody) {
+      if (SEPARATOR.test(line)) {
+        flushBucket();
+        // The separator itself is NOT stored; it will be re-inserted between buckets.
+      } else {
+        currentBucketLines.push(line);
+      }
+    }
+    flushBucket(); // flush trailing bucket (no trailing `----`)
+
+    // Sort: undated buckets first (treated as epoch 0), then ascending by date
+    buckets.sort((a, b) => {
+      const ta = a.date ? a.date.valueOf() : 0;
+      const tb = b.date ? b.date.valueOf() : 0;
+      return ta - tb;
+    });
+
+    // Reassemble journal body with `----` separators between buckets
+    const sortedJournalLines = [];
+    for (let i = 0; i < buckets.length; i++) {
+      sortedJournalLines.push(...buckets[i].lines);
+      if (i < buckets.length - 1) {
+        sortedJournalLines.push("----");
+      }
+    }
+
+    return [...preamble, ...sortedJournalLines, ...afterJournal];
   }
 
   // NEW: Check if ANY block is under an activity header using Block hierarchy

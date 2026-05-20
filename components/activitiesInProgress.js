@@ -82,32 +82,28 @@ class activitiesInProgress {
         const todoBlocks = fileBlocks.filter(
           (block) => block.getAttribute("type") === "todo"
         );
-        const doneBlocks = fileBlocks.filter(
-          (block) => block.getAttribute("type") === "done"
-        );
 
-        // Filter out completed todos
-        const completedTaskNames = new Set();
-        doneBlocks.forEach((doneBlock) => {
-          const taskName = this.extractTaskNameFromBlock(doneBlock);
-          if (taskName) {
-            completedTaskNames.add(taskName);
-          }
-        });
-
-        const incompleteTodoBlocks = todoBlocks.filter((todoBlock) => {
-          const taskName = this.extractTaskNameFromBlock(todoBlock);
-          return taskName && !completedTaskNames.has(taskName);
-        });
-
-        // Filter to only include todos inside the ## Journal section.
-        // Done when checkboxes (above ## Journal) are acceptance criteria, not daily tasks.
+        // Isolate the ## Journal section (raw text) — acceptance criteria in
+        // "## Done when" are excluded; they are not recurring daily tasks.
         const journalHeadingIdx = rawContent.indexOf('\n## Journal');
         const journalSection = journalHeadingIdx >= 0
           ? rawContent.substring(journalHeadingIdx)
           : rawContent; // fallback: no Journal section, include all todos
-        const journalTodos = incompleteTodoBlocks.filter((todoBlock) => {
-          return journalSection.includes(todoBlock.content.trim());
+
+        // Calendar-principle: for each task text, keep the state from the MOST
+        // RECENT date-section in the Journal.  This lets recurring tasks reappear
+        // after they are reopened on a later date.
+        const latestStates = this.getLatestTodoStates(journalSection);
+
+        // A task is shown when:
+        //   • it has no recorded state at all (brand-new mention), OR
+        //   • its most-recent state is open ([ ])
+        const journalTodos = todoBlocks.filter((todoBlock) => {
+          const taskName = this.extractTaskNameFromBlock(todoBlock);
+          if (!taskName) return false;
+          if (!journalSection.includes(todoBlock.content.trim())) return false;
+          const entry = latestStates.get(taskName);
+          return !entry || entry.state === "open";
         });
 
         // Store activity with its todos
@@ -253,6 +249,64 @@ class activitiesInProgress {
     }
 
     return null;
+  }
+
+  /**
+   * Calendar-principle: parse the ## Journal section of an Activity file and
+   * return the MOST RECENT state for every task.
+   *
+   * Rules:
+   *  • The section is divided into date-buckets by `[[YYYY-MM-DD]]` anchor lines.
+   *  • Later dates always win: if a task is `[x]` on May 1 but `[ ]` on May 10,
+   *    it is treated as open (will appear in today's Activity list again).
+   *  • Tasks that appear outside any date section get date epoch 0 (lowest priority).
+   *  • Non-todo lines are ignored.
+   *
+   * @param {string} journalSection - The raw text from `## Journal` to end of section
+   * @returns {Map<string, {state: 'open'|'done', date: number}>} Map keyed by task text
+   */
+  getLatestTodoStates(journalSection) {
+    const DATE_ANCHOR = /\[\[(\d{4}-\d{2}-\d{2})\]\]/;
+    const TODO_OPEN   = /^- \[ \] (.+)$/;
+    const TODO_DONE   = /^- \[x\] (.+)$/i;
+
+    const latestStates = new Map(); // taskText → { state, dateValue }
+    let currentDateValue = 0; // epoch ms; 0 = "no date / oldest"
+
+    for (const rawLine of journalSection.split("\n")) {
+      const line = rawLine.trim();
+
+      // Detect date anchor — update current date context
+      const dateMatch = DATE_ANCHOR.exec(line);
+      if (dateMatch) {
+        const d = moment(dateMatch[1], "YYYY-MM-DD", true);
+        currentDateValue = d.isValid() ? d.valueOf() : 0;
+        continue;
+      }
+
+      // Detect open task
+      const openMatch = TODO_OPEN.exec(line);
+      if (openMatch) {
+        const taskText = openMatch[1].trim();
+        const existing = latestStates.get(taskText);
+        if (!existing || currentDateValue >= existing.dateValue) {
+          latestStates.set(taskText, { state: "open", dateValue: currentDateValue });
+        }
+        continue;
+      }
+
+      // Detect done task
+      const doneMatch = TODO_DONE.exec(line);
+      if (doneMatch) {
+        const taskText = doneMatch[1].trim();
+        const existing = latestStates.get(taskText);
+        if (!existing || currentDateValue >= existing.dateValue) {
+          latestStates.set(taskText, { state: "done", dateValue: currentDateValue });
+        }
+      }
+    }
+
+    return latestStates;
   }
 
   /**
