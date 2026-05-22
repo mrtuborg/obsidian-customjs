@@ -109,7 +109,9 @@ class activityComposer {
       const projectPages = dv
         .pages('"Projects"')
         .filter((page) => page.file.name !== "Inbox");
+      console.log(`[AC] projectPages count=${projectPages.length}, names=${projectPages.map(p=>p.file.name).join(",")}`);
       const projectBlocks = await noteBlocksParser.run(app, projectPages, "");
+      console.log(`[AC] projectBlocks total=${projectBlocks.blocks.length}`);
 
       // Use BlockCollection directly - NEW APPROACH (removed compatibility layer)
       const blockCollection = allBlocks;
