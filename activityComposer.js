@@ -13,6 +13,17 @@ class activityComposer {
    */
   async processActivity(app, dv, currentPageFile) {
     try {
+      // dv.current() can return null when Dataview hasn't indexed the file yet
+      // (e.g. immediately after rename or first render). Fall back to the active file.
+      if (!currentPageFile) {
+        const activeFile = app.workspace.getActiveFile();
+        if (!activeFile) {
+          console.warn("activityComposer: currentPageFile is null and no active file — skipping");
+          return { success: false, error: "No current page file" };
+        }
+        currentPageFile = activeFile;
+      }
+
       // Load required modules - single cJS() call for efficiency
       const cjs = await cJS();
       const {

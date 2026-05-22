@@ -100,14 +100,14 @@ const {activityComposer, fileIO, mentionsProcessor} = await cJS();
 **Activity Template:**
 ```javascript
 const {activityComposer} = await cJS();
-const currentPageFile = dv.current().file;
+const currentPageFile = dv.current()?.file;
 await activityComposer.processActivity(app, dv, currentPageFile);
 ```
 
 **Daily Note Template:**
 ```javascript
 const {dailyNoteComposer} = await cJS();
-const currentPageFile = dv.current().file;
+const currentPageFile = dv.current()?.file;
 await dailyNoteComposer.processDailyNote(app, dv, currentPageFile, title);
 ```
 

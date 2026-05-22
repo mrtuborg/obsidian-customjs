@@ -36,7 +36,7 @@ class timelineView {
     }
 
     async run(dv, app) {
-        const data = await this.extractDates(dv, dv.current().file.path, app);
+        const data = await this.extractDates(dv, dv.current()?.file.path, app);
 
         // Sort data by date and then by text (bolded text last)
         data.sort((a, b) => {
