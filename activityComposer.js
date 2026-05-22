@@ -20,16 +20,15 @@ class activityComposer {
         noteBlocksParser,
         attributesProcessor,
         mentionsProcessor,
+        projectDescriptionInjector,
       } = cjs;
 
       // Load current page content
       let currentPageContent = await fileIO.loadFile(app, currentPageFile.path);
 
-      // Read all standard frontmatter fields from file content.
-      // DataView's dv.current() and the metadata cache can both be stale during
-      // a re-render triggered by a previous save, causing fields to revert to
-      // defaults or wrong values. File content is always the ground truth.
-      const STANDARD_FIELDS = new Set(["startDate", "stage", "responsible", "type", "position"]);
+      // Standard fields known to fileIO.generateActivityHeader — must be kept
+      // in sync with that method's signature so extra fields are not double-written.
+      const STANDARD_FIELDS = new Set(["startDate", "stage", "responsible", "type", "position", "project"]);
 
       let startDate = fileIO.parseFrontmatterField(currentPageContent, "startDate");
       if (!startDate) startDate = fileIO.todayDate();
@@ -74,7 +73,6 @@ class activityComposer {
       currentPageContent = currentPageContent.replace(frontmatter, "").trim();
 
       let dataviewJsBlock = "";
-      let pageContent = "";
 
       // Extract existing content structure
       if (currentPageContent.trim().length > 0) {
@@ -91,6 +89,13 @@ class activityComposer {
         ),
         "YYYY-MM-DD"
       );
+
+      // Parse project blocks for description injection
+      // namePattern "" → no date filter, all Projects/ files are parsed
+      const projectPages = dv
+        .pages('"Projects"')
+        .filter((page) => page.file.name !== "Inbox");
+      const projectBlocks = await noteBlocksParser.run(app, projectPages, "");
 
       // Use BlockCollection directly - NEW APPROACH (removed compatibility layer)
       const blockCollection = allBlocks;
@@ -142,8 +147,21 @@ class activityComposer {
       // Update contentAfterDataview with processed content (directives converted to comments)
       contentAfterDataview = processedContent;
 
-      // Process mentions - using BlockCollection directly
+      // ── Step 1: Inject project description into ## Description ──────────────
+      // Projects/ is the authoritative source for the descriptive part of an
+      // Activity (goal, context, done-when).  This runs BEFORE mentionsProcessor
+      // so the injected content is visible when Journal mentions are processed.
+      // run() always returns the updated body — even an empty description clears
+      // stale content (replace-semantics, not append-semantics).
       const tagId = currentPageFile.name;
+      contentAfterDataview = await projectDescriptionInjector.run(
+        contentAfterDataview,
+        projectBlocks,
+        tagId
+      );
+
+      // ── Step 2: Process journal mentions into ## Journal ──────────────────
+      // Process mentions - using BlockCollection directly
       const mentions = await mentionsProcessor.run(
         contentAfterDataview,
         blockCollection,
