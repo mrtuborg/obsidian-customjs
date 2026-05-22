@@ -111,9 +111,7 @@ class activityComposer {
       const projectFiles = app.vault.getMarkdownFiles()
         .filter(f => f.path.startsWith("Projects/") && f.basename !== "Inbox");
       const projectPages = projectFiles.map(f => ({ file: { path: f.path, name: f.basename } }));
-      console.log(`[AC] projectPages count=${projectPages.length}, names=${projectPages.map(p=>p.file.name).join(",")}`);
       const projectBlocks = await noteBlocksParser.run(app, projectPages, "");
-      console.log(`[AC] projectBlocks total=${projectBlocks.blocks.length}`);
 
       // Use BlockCollection directly - NEW APPROACH (removed compatibility layer)
       const blockCollection = allBlocks;

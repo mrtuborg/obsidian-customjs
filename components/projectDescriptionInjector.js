@@ -59,12 +59,8 @@ class projectDescriptionInjector {
     // Group description blocks by project source file
     const byProject = new Map(); // projectFilename → string[]
 
-    console.log(`[PDI] buildDescription: tagId="${tagId}", total blocks=${projectBlocks.blocks.length}`);
-
     for (const block of projectBlocks.blocks) {
       if (!this.isDescriptionBlock(block, tagId)) continue;
-
-      console.log(`[PDI] matched block: page=${block.page}, content="${(block.content||"").substring(0,60)}"`);
 
 
       const projectFile = this.extractProjectFilename(block.page);
@@ -78,10 +74,7 @@ class projectDescriptionInjector {
       }
     }
 
-    if (byProject.size === 0) {
-      console.log(`[PDI] no description blocks found for tagId="${tagId}"`);
-      return null;
-    }
+    if (byProject.size === 0) return null;
 
     const lines = [];
 
