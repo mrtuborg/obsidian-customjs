@@ -104,11 +104,13 @@ class activityComposer {
         "YYYY-MM-DD"
       );
 
-      // Parse project blocks for description injection
-      // namePattern "" → no date filter, all Projects/ files are parsed
-      const projectPages = dv
-        .pages('"Projects"')
-        .filter((page) => page.file.name !== "Inbox");
+      // Parse project blocks for description injection.
+      // Use app.vault.getMarkdownFiles() instead of dv.pages() to avoid Dataview
+      // indexing issues (dv.pages('"Projects"') can return 0 if Dataview hasn't
+      // indexed the folder yet or excludes it).
+      const projectFiles = app.vault.getMarkdownFiles()
+        .filter(f => f.path.startsWith("Projects/") && f.basename !== "Inbox");
+      const projectPages = projectFiles.map(f => ({ file: { path: f.path, name: f.basename } }));
       console.log(`[AC] projectPages count=${projectPages.length}, names=${projectPages.map(p=>p.file.name).join(",")}`);
       const projectBlocks = await noteBlocksParser.run(app, projectPages, "");
       console.log(`[AC] projectBlocks total=${projectBlocks.blocks.length}`);
@@ -169,7 +171,9 @@ class activityComposer {
       // so the injected content is visible when Journal mentions are processed.
       // run() always returns the updated body — even an empty description clears
       // stale content (replace-semantics, not append-semantics).
-      const tagId = currentPageFile.name;
+      // tagId = filename without .md extension (used to match activity headers in Project files).
+      // dv.current()?.file.name already strips .md; app.workspace.getActiveFile().name does not.
+      const tagId = currentPageFile.name.replace(/\.md$/i, "");
       contentAfterDataview = await projectDescriptionInjector.run(
         contentAfterDataview,
         projectBlocks,
