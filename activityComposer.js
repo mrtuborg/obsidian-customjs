@@ -23,6 +23,7 @@ class activityComposer {
         }
         currentPageFile = activeFile;
       }
+      const initialMtime = this.getFileMtime(app, currentPageFile.path);
 
       // Load required modules - single cJS() call for efficiency
       const cjs = await cJS();
@@ -86,12 +87,19 @@ class activityComposer {
       // Remove the generated header from currentPageContent
       currentPageContent = currentPageContent.replace(frontmatter, "").trim();
 
-      let dataviewJsBlock = "";
-
-      // Extract existing content structure
-      if (currentPageContent.trim().length > 0) {
-        ({ dataviewJsBlock } =
-          fileIO.extractFrontmatterAndDataviewJs(currentPageContent));
+      // Extract existing content structure. If the dataviewjs block is missing,
+      // keep processing and recreate it so the Activity remains self-updating.
+      const extractedParts = fileIO.extractFrontmatterAndDataviewJs(currentPageContent || "");
+      let dataviewJsBlock = extractedParts.dataviewJsBlock || "";
+      let contentAfterDataview = extractedParts.pageContent || "";
+      if (!dataviewJsBlock || dataviewJsBlock.trim().length === 0) {
+        dataviewJsBlock = [
+          "```dataviewjs",
+          "const {activityComposer} = await cJS();",
+          "const currentPageFile = dv.current()?.file;",
+          "await activityComposer.processActivity(app, dv, currentPageFile);",
+          "```",
+        ].join("\n");
       }
 
       // Parse journal blocks for mentions processing
@@ -115,24 +123,6 @@ class activityComposer {
 
       // Use BlockCollection directly - NEW APPROACH (removed compatibility layer)
       const blockCollection = allBlocks;
-
-      // Extract content after dataviewjs block for attribute processing
-      let contentAfterDataview = "";
-      if (currentPageContent.trim().length > 0) {
-        const lines = currentPageContent.split("\n");
-        let inDataviewBlock = false;
-        let afterDataview = false;
-        for (let i = 0; i < lines.length; i++) {
-          if (lines[i].startsWith("```dataviewjs")) {
-            inDataviewBlock = true;
-          } else if (lines[i].startsWith("```") && inDataviewBlock) {
-            inDataviewBlock = false;
-            afterDataview = true;
-          } else if (afterDataview) {
-            contentAfterDataview += lines[i] + "\n";
-          }
-        }
-      }
 
       // Process attributes
       const frontmatterObj = {
@@ -172,6 +162,12 @@ class activityComposer {
       // tagId = filename without .md extension (used to match activity headers in Project files).
       // dv.current()?.file.name already strips .md; app.workspace.getActiveFile().name does not.
       const tagId = currentPageFile.name.replace(/\.md$/i, "");
+      if (!extraFields.project) {
+        const inferredProjectRef = this.inferProjectRef(projectBlocks, tagId);
+        if (inferredProjectRef) {
+          extraFields.project = inferredProjectRef;
+        }
+      }
       contentAfterDataview = await projectDescriptionInjector.run(
         contentAfterDataview,
         projectBlocks,
@@ -206,6 +202,20 @@ class activityComposer {
         dataviewJsBlock,
         contentAfterDataview,
       ].join("\n\n");
+      const latestMtime = this.getFileMtime(app, currentPageFile.path);
+      if (
+        initialMtime !== null &&
+        latestMtime !== null &&
+        latestMtime !== initialMtime
+      ) {
+        console.warn(
+          `activityComposer: concurrent update detected for "${currentPageFile.path}" (mtime ${initialMtime} -> ${latestMtime}), skipping save`
+        );
+        return {
+          success: false,
+          error: "Concurrent activity update detected; reopen the note to retry.",
+        };
+      }
       await fileIO.saveFile(app, currentPageFile.path, combinedContent);
 
       return {
@@ -220,5 +230,33 @@ class activityComposer {
         error: error.message,
       };
     }
+
+  }
+
+  inferProjectRef(projectBlocks, tagId) {
+    if (!projectBlocks || !Array.isArray(projectBlocks.blocks)) return null;
+
+    const matchedProjects = new Set();
+    for (const block of projectBlocks.blocks) {
+      if ((block.page || "").startsWith("Projects/") && block.getAttribute("type") === "header") {
+        if ((block.content || "").includes(tagId)) {
+          matchedProjects.add(block.page);
+        }
+      }
+    }
+
+    if (matchedProjects.size > 1) {
+      console.warn(
+        `activityComposer: ambiguous project inference for "${tagId}" (${[...matchedProjects].join(", ")}); preserving existing project field`
+      );
+      return null;
+    }
+    if (matchedProjects.size !== 1) return null;
+    return [...matchedProjects][0];
+  }
+
+  getFileMtime(app, filePath) {
+    const file = app.vault.getAbstractFileByPath(filePath);
+    return file?.stat?.mtime ?? null;
   }
 }

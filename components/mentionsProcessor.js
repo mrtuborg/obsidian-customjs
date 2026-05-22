@@ -84,18 +84,12 @@ class mentionsProcessor {
       }
     });
 
-    // Parse current page content into blocks for comparison
-    const currentLines = currentPageContent
-      ? currentPageContent.split("\n")
-      : [];
-
-    // Find insertion point
-    let insertIndex = Math.max(
-      currentLines.lastIndexOf("---"),
-      currentLines.lastIndexOf("----")
-    );
-    insertIndex =
-      insertIndex !== -1 ? insertIndex + 1 : currentLines.length + 1;
+    // Parse current page content and scope all writes strictly to ## Journal.
+    // This prevents mentions processing from inserting into/overwriting Description.
+    const currentLines = currentPageContent ? currentPageContent.split("\n") : [];
+    const journalBounds = this.findJournalSectionBounds(currentLines) ||
+      this.ensureJournalSection(currentLines);
+    const journalLines = currentLines.slice(journalBounds.start, journalBounds.end);
 
     // Group mention blocks by source file for processing (now pre-sorted chronologically)
     let mentionBlocksBySource = {};
@@ -119,7 +113,7 @@ class mentionsProcessor {
         tagId,
         linkPart,
         currentPageContent,
-        currentLines,
+        journalLines,
         addedMentionLines
       );
 
@@ -129,9 +123,20 @@ class mentionsProcessor {
     }
 
     // CRITICAL: Todo state synchronization using Block system
-    await this.synchronizeTodoStates(currentLines, mentionBlocks, tagId);
+    const journalBeforeSync = journalLines.join("\n");
+    await this.synchronizeTodoStates(journalLines, mentionBlocks, tagId);
+    const journalChangedBySync = journalLines.join("\n") !== journalBeforeSync;
 
-    if (Object.keys(mentionBlocksBySource).length === 0) return "";
+    if (Object.keys(mentionBlocksBySource).length === 0) {
+      if (!journalChangedBySync) return "";
+      currentLines.splice(
+        journalBounds.start,
+        journalBounds.end - journalBounds.start,
+        ...journalLines
+      );
+      const sortedLines = this.sortJournalSection(currentLines);
+      return sortedLines.join("\n");
+    }
 
     let newContent = [];
 
@@ -153,7 +158,7 @@ class mentionsProcessor {
 
     // Build new content from processed blocks
     // normalizedCurrentLines is used for the final guard below
-    const normalizedCurrentLines = currentLines.map((l) => l.trim());
+    const normalizedCurrentLines = journalLines.map((l) => l.trim());
     const normalizedCurrentLinesSet = new Set(normalizedCurrentLines);
 
     sortedLinkParts.forEach((linkPart) => {
@@ -187,11 +192,32 @@ class mentionsProcessor {
       }
     });
 
-    if (newContent.length === 0) return "";
+    if (newContent.length === 0) {
+      if (!journalChangedBySync) return "";
+      currentLines.splice(
+        journalBounds.start,
+        journalBounds.end - journalBounds.start,
+        ...journalLines
+      );
+      const sortedLines = this.sortJournalSection(currentLines);
+      return sortedLines.join("\n");
+    }
     newContent.push("\n----");
 
-    // Insert the new mention blocks
-    currentLines.splice(insertIndex, 0, ...newContent);
+    // Insert mentions at the end of the Journal body (before trailing separator if present).
+    let insertIndex = journalLines.length;
+    for (let i = journalLines.length - 1; i >= 0; i--) {
+      if (/^----\s*$/.test(journalLines[i])) {
+        insertIndex = i;
+        break;
+      }
+    }
+    journalLines.splice(insertIndex, 0, ...newContent);
+    currentLines.splice(
+      journalBounds.start,
+      journalBounds.end - journalBounds.start,
+      ...journalLines
+    );
 
     // Re-sort the entire Journal section to guarantee chronological order.
     // This handles:
@@ -200,6 +226,44 @@ class mentionsProcessor {
     //   • any prior incorrect ordering already present in the file
     const sortedLines = this.sortJournalSection(currentLines);
     return sortedLines.join("\n");
+  }
+
+  findJournalSectionBounds(lines) {
+    const journalHeaderIdx = lines.findIndex((l) => /^## Journal\s*$/.test(l));
+    if (journalHeaderIdx === -1) return null;
+
+    let journalEnd = lines.length;
+    for (let i = journalHeaderIdx + 1; i < lines.length; i++) {
+      if (/^## /.test(lines[i])) {
+        journalEnd = i;
+        break;
+      }
+    }
+
+    return { start: journalHeaderIdx + 1, end: journalEnd };
+  }
+
+  ensureJournalSection(lines) {
+    const similarHeader = lines.find((l) => {
+      const trimmed = (l || "").trim();
+      return /^##\s*Journal\b/i.test(trimmed) && !/^## Journal\s*$/.test(trimmed);
+    });
+    if (similarHeader) {
+      console.warn(
+        `mentionsProcessor: found non-canonical Journal header "${similarHeader.trim()}"; expected exactly "## Journal"`
+      );
+    }
+    console.warn(
+      'mentionsProcessor: missing "## Journal" section; recreating canonical Journal section'
+    );
+
+    if (lines.length > 0 && lines[lines.length - 1].trim() !== "") {
+      lines.push("");
+    }
+    lines.push("## Journal");
+    lines.push("");
+    lines.push("----");
+    return this.findJournalSectionBounds(lines);
   }
 
   // NEW: Block-based content processing
