@@ -39,7 +39,10 @@ class activityComposer {
 
       // Standard fields known to fileIO.generateActivityHeader — must be kept
       // in sync with that method's signature so extra fields are not double-written.
-      const STANDARD_FIELDS = new Set(["startDate", "stage", "responsible", "type", "position", "project"]);
+      // Only fields that generateActivityHeader explicitly writes belong here.
+      // "project" and "position" are intentionally NOT listed — they are not written
+      // by generateActivityHeader and must flow through as extraFields so they are preserved.
+      const STANDARD_FIELDS = new Set(["startDate", "stage", "responsible", "type"]);
 
       let startDate = fileIO.parseFrontmatterField(currentPageContent, "startDate");
       if (!startDate) startDate = fileIO.todayDate();
