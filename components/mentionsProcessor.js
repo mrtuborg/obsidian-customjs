@@ -35,29 +35,6 @@ class mentionsProcessor {
         ? "current-activity"
         : "unknown";
 
-      // STAGE FILTERING: Only include blocks from activities that are in progress
-      // Skip blocks from activities with stage="done" to avoid processing completed activities
-      if (
-        this.isBlockFromCompletedActivity &&
-        this.isBlockFromCompletedActivity(block)
-      ) {
-        console.log(
-          `mentionsProcessor: Skipping block from completed activity: ${block.page}`
-        );
-        return false;
-      }
-
-      // DATE FILTERING: Skip blocks from activities with future startDate
-      // Don't show activities in daily notes if their startDate is in the future
-      if (
-        this.isBlockFromFutureActivity &&
-        this.isBlockFromFutureActivity(block, tagId)
-      ) {
-        console.log(
-          `mentionsProcessor: Skipping block from future activity: ${block.page}`
-        );
-        return false;
-      }
 
       // Include blocks that directly contain the tagId
       if (blockContent.includes(tagId)) {
@@ -802,55 +779,6 @@ class mentionsProcessor {
     return date.format("YYYY-MM-DD");
   }
 
-  // NEW: Check if a block comes from a completed activity (stage="done")
-  isBlockFromCompletedActivity(block) {
-    if (!block || !block.page) return false;
-
-    // Check if the block comes from an Activities file
-    if (!block.page.startsWith("Activities/")) return false;
-
-    // Skip archive folder - these are definitely completed
-    if (block.page.startsWith("Activities/Archive/")) return true;
-
-    // DEFAULT BEHAVIOR: Activities with no "stage" property are considered "in progress"
-    // Only activities with explicit stage="done" are considered completed
-    // This prevents the "Cannot read properties of undefined (reading 'stage')" error
-    // while treating missing stage as "in progress" (active)
-
-    // For now, we don't have access to frontmatter in this context
-    // So we'll assume all non-archived activities are in progress
-    // This can be enhanced later if needed to check actual frontmatter
-    return false; // Treat as "in progress" by default
-  }
-
-  // NEW: Check if a block comes from a future activity (startDate in the future)
-  isBlockFromFutureActivity(block, tagId) {
-    if (!block || !block.page) return false;
-
-    // Only check Activities files
-    if (!block.page.startsWith("Activities/")) return false;
-
-    // Extract current date from tagId if it's a date-based tagId (YYYY-MM-DD format)
-    let currentDate = null;
-    if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      currentDate = moment(tagId, "YYYY-MM-DD");
-    } else {
-      // If tagId is not a date, use today's date
-      currentDate = moment();
-    }
-
-    // For now, we don't have direct access to activity frontmatter in this context
-    // This is a placeholder for future enhancement where we could:
-    // 1. Load the activity file and parse its frontmatter
-    // 2. Check if startDate > currentDate
-    // 3. Return true if activity should not appear yet
-
-    // TODO: Implement actual frontmatter checking
-    // For now, we'll assume all activities are current (not future)
-    // This can be enhanced later when we have access to activity frontmatter
-
-    return false; // Placeholder - treat all activities as current for now
-  }
 
   async run(currentPageContent, collectedBlocks, mentionStr, frontmatterObj) {
     return await this.processMentions(
