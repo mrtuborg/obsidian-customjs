@@ -21,7 +21,7 @@ class dailyNoteComposer {
       const {
         fileIO,
         noteBlocksParser,
-        autoActivityCreator,
+        todoSyncManager,
         activitiesInProgress,
         mentionsProcessor,
         scriptsRemove,
@@ -46,27 +46,13 @@ class dailyNoteComposer {
       }
 
       // Check if this is today's note
-      const currentPage = dv.current?.();
-      const currentPageName = (currentPage?.name || currentPageFile.name || "").replace(
-        /\.md$/,
-        ""
-      );
-      const pageIsToday = currentPageName
-        ? fileIO.isDailyNote(currentPageName)
-        : false;
+      const pageIsToday = fileIO.isDailyNote(currentPageFile.name);
+      const dailyNoteDate = moment(dv.current().name).format("YYYY-MM-DD");
 
-      // Parse journal blocks for processing.
-      // Only include the last 90 days — older entries are never needed for
-      // mention processing of a new note, and bounding the set prevents
-      // unbounded growth as the vault accumulates daily notes over time.
-      const cutoff = moment().subtract(90, "days").startOf("day");
+      // Parse journal blocks for processing
       const journalPages = dv
         .pages('"Journal"')
-        .filter((page) => {
-          if (page.file.path.trim().includes(title)) return false;
-          const d = moment(page.file.name, "YYYY-MM-DD", true);
-          return d.isValid() && d.isSameOrAfter(cutoff);
-        });
+        .filter((page) => !page.file.path.trim().includes(title));
       const allBlocks = await noteBlocksParser.run(
         app,
         journalPages,
@@ -78,20 +64,10 @@ class dailyNoteComposer {
 
       // Add activities in progress (only for today's note)
       if (pageIsToday) {
-        // Auto-create Activity files for any unresolved wikilinks in the
-        // previous journal entry — handles the case where the user wrote a
-        // mention but forgot to click it to create the file.
-        await autoActivityCreator.run(app, dv);
+        // Sync activity todos before copying to daily note
+        await todoSyncManager.run(app);
 
-        // todoSyncManager (vault.modify per activity) has been removed:
-        //  • It triggered O(N × M) I/O (N activities × M journal reads each)
-        //  • The async DataviewJS re-render was unreliable (not guaranteed to
-        //    complete before activitiesInProgress.run)
-        //  • activitiesInProgress now reads todo states directly from each
-        //    Activity file's raw ## Journal section (calendar-principle), so
-        //    no pre-sync step is needed.
-
-        const activities = await activitiesInProgress.run(app);
+        const activities = await activitiesInProgress.run(app, pageContent);
         if (activities && activities.trim().length > 0) {
           pageContent = activities;
         }

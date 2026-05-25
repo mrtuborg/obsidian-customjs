@@ -4,7 +4,7 @@
 class forceStaticPage {
   // This function is the main entry point for the script
   async run(dv, app) {
-    const currentFilePath = dv.current()?.file.path;
+    const currentFilePath = dv.current().file.path;
     const fileName = currentFilePath.split("/").pop();
     const fileDateMatch = fileName.match(/\d{4}-\d{2}-\d{2}/);
 

@@ -4,7 +4,6 @@
 class BlockCollection {
   constructor() {
     this.blocks = [];
-    this._blockSet = new Set();
   }
 
   // Factory method to create new BlockCollection instances
@@ -13,18 +12,15 @@ class BlockCollection {
   }
 
   addBlock(block) {
-    if (!this._blockSet.has(block)) {
-      this._blockSet.add(block);
+    if (!this.blocks.includes(block)) {
       this.blocks.push(block);
     }
   }
 
   removeBlock(block) {
-    if (this._blockSet.delete(block)) {
-      const index = this.blocks.indexOf(block);
-      if (index > -1) {
-        this.blocks.splice(index, 1);
-      }
+    const index = this.blocks.indexOf(block);
+    if (index > -1) {
+      this.blocks.splice(index, 1);
     }
   }
 

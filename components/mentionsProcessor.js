@@ -35,9 +35,48 @@ class mentionsProcessor {
         ? "current-activity"
         : "unknown";
 
+      // STAGE FILTERING: Only include blocks from activities that are in progress
+      // Skip blocks from activities with stage="done" to avoid processing completed activities
+      if (
+        this.isBlockFromCompletedActivity &&
+        this.isBlockFromCompletedActivity(block)
+      ) {
+        console.log(
+          `mentionsProcessor: Skipping block from completed activity: ${block.page}`
+        );
+        return false;
+      }
+
+      // DATE FILTERING: Skip blocks from activities with future startDate
+      // Don't show activities in daily notes if their startDate is in the future
+      if (
+        this.isBlockFromFutureActivity &&
+        this.isBlockFromFutureActivity(block, tagId)
+      ) {
+        console.log(
+          `mentionsProcessor: Skipping block from future activity: ${block.page}`
+        );
+        return false;
+      }
+
+      // DEBUG: Log all blocks being considered for date-based tagIds
+      if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        console.warn(
+          `🔍 DAILY NOTE DEBUG: Checking block from ${
+            block.page
+          } for tagId "${tagId}": "${blockContent.trim().substring(0, 100)}"`
+        );
+      }
 
       // Include blocks that directly contain the tagId
       if (blockContent.includes(tagId)) {
+        if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          console.warn(
+            `🎯 DAILY NOTE DEBUG: Found direct mention in ${
+              block.page
+            }: "${blockContent.trim()}"`
+          );
+        }
         return true;
       }
 
@@ -47,6 +86,13 @@ class mentionsProcessor {
         this.isBlockUnderSpecificActivityHeader(block, tagId);
       if (isUnderSpecificActivityHeader) {
         const blockType = block.getAttribute("type") || "unknown";
+        if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          console.warn(
+            `🏗️ DAILY NOTE DEBUG: Found hierarchical ${blockType} under specific activity header in ${
+              block.page
+            }: "${blockContent.trim()}"`
+          );
+        }
         return true;
       }
       return false;
@@ -84,12 +130,18 @@ class mentionsProcessor {
       }
     });
 
-    // Parse current page content and scope all writes strictly to ## Journal.
-    // This prevents mentions processing from inserting into/overwriting Description.
-    const currentLines = currentPageContent ? currentPageContent.split("\n") : [];
-    const journalBounds = this.findJournalSectionBounds(currentLines) ||
-      this.ensureJournalSection(currentLines);
-    const journalLines = currentLines.slice(journalBounds.start, journalBounds.end);
+    // Parse current page content into blocks for comparison
+    const currentLines = currentPageContent
+      ? currentPageContent.split("\n")
+      : [];
+
+    // Find insertion point
+    let insertIndex = Math.max(
+      currentLines.lastIndexOf("---"),
+      currentLines.lastIndexOf("----")
+    );
+    insertIndex =
+      insertIndex !== -1 ? insertIndex + 1 : currentLines.length + 1;
 
     // Group mention blocks by source file for processing (now pre-sorted chronologically)
     let mentionBlocksBySource = {};
@@ -113,7 +165,7 @@ class mentionsProcessor {
         tagId,
         linkPart,
         currentPageContent,
-        journalLines,
+        currentLines,
         addedMentionLines
       );
 
@@ -123,20 +175,9 @@ class mentionsProcessor {
     }
 
     // CRITICAL: Todo state synchronization using Block system
-    const journalBeforeSync = journalLines.join("\n");
-    await this.synchronizeTodoStates(journalLines, mentionBlocks, tagId);
-    const journalChangedBySync = journalLines.join("\n") !== journalBeforeSync;
+    await this.synchronizeTodoStates(currentLines, mentionBlocks, tagId);
 
-    if (Object.keys(mentionBlocksBySource).length === 0) {
-      if (!journalChangedBySync) return "";
-      currentLines.splice(
-        journalBounds.start,
-        journalBounds.end - journalBounds.start,
-        ...journalLines
-      );
-      const sortedLines = this.sortJournalSection(currentLines);
-      return sortedLines.join("\n");
-    }
+    if (Object.keys(mentionBlocksBySource).length === 0) return "";
 
     let newContent = [];
 
@@ -157,10 +198,6 @@ class mentionsProcessor {
     });
 
     // Build new content from processed blocks
-    // normalizedCurrentLines is used for the final guard below
-    const normalizedCurrentLines = journalLines.map((l) => l.trim());
-    const normalizedCurrentLinesSet = new Set(normalizedCurrentLines);
-
     sortedLinkParts.forEach((linkPart) => {
       const blockDataLength = mentionBlocksBySource[linkPart]
         .join("\n")
@@ -170,100 +207,25 @@ class mentionsProcessor {
         const filteredMentions = mentionBlocksBySource[linkPart].filter(
           (mentionData) => {
             const trimmed = mentionData.trim();
-            // Discard empty lines and bare header markers (e.g. "#####")
-            return trimmed.length > 0 && !/^(#+)[ \t]*$/.test(trimmed);
+            return !/^(#+)[ \t]*$/.test(trimmed);
           }
         );
 
-        // Final guard: only create a date section when it contains at least one
-        // content line that is genuinely absent from the activity body.
-        // This stops duplicate sections forming when unchanged tasks are copied
-        // from the same activity into every new daily note.
-        const trulyNewMentions = filteredMentions.filter((mentionData) => {
-          return !normalizedCurrentLinesSet.has(mentionData.trim());
-        });
-
-        if (trulyNewMentions.length > 0) {
+        if (filteredMentions.length > 0) {
           newContent.push(`\n[[${linkPart}]]`);
-          trulyNewMentions.forEach((mentionData) => {
+          filteredMentions.forEach((mentionData) => {
             newContent.push(mentionData + "\n");
           });
         }
       }
     });
 
-    if (newContent.length === 0) {
-      if (!journalChangedBySync) return "";
-      currentLines.splice(
-        journalBounds.start,
-        journalBounds.end - journalBounds.start,
-        ...journalLines
-      );
-      const sortedLines = this.sortJournalSection(currentLines);
-      return sortedLines.join("\n");
-    }
+    if (newContent.length === 0) return "";
     newContent.push("\n----");
 
-    // Insert mentions at the end of the Journal body (before trailing separator if present).
-    let insertIndex = journalLines.length;
-    for (let i = journalLines.length - 1; i >= 0; i--) {
-      if (/^----\s*$/.test(journalLines[i])) {
-        insertIndex = i;
-        break;
-      }
-    }
-    journalLines.splice(insertIndex, 0, ...newContent);
-    currentLines.splice(
-      journalBounds.start,
-      journalBounds.end - journalBounds.start,
-      ...journalLines
-    );
-
-    // Re-sort the entire Journal section to guarantee chronological order.
-    // This handles:
-    //   • initial Activity creation (all sections built at once)
-    //   • backfilled past dates (a journal entry written for an older date)
-    //   • any prior incorrect ordering already present in the file
-    const sortedLines = this.sortJournalSection(currentLines);
-    return sortedLines.join("\n");
-  }
-
-  findJournalSectionBounds(lines) {
-    const journalHeaderIdx = lines.findIndex((l) => /^## Journal\s*$/.test(l));
-    if (journalHeaderIdx === -1) return null;
-
-    let journalEnd = lines.length;
-    for (let i = journalHeaderIdx + 1; i < lines.length; i++) {
-      if (/^## /.test(lines[i])) {
-        journalEnd = i;
-        break;
-      }
-    }
-
-    return { start: journalHeaderIdx + 1, end: journalEnd };
-  }
-
-  ensureJournalSection(lines) {
-    const similarHeader = lines.find((l) => {
-      const trimmed = (l || "").trim();
-      return /^##\s*Journal\b/i.test(trimmed) && !/^## Journal\s*$/.test(trimmed);
-    });
-    if (similarHeader) {
-      console.warn(
-        `mentionsProcessor: found non-canonical Journal header "${similarHeader.trim()}"; expected exactly "## Journal"`
-      );
-    }
-    console.warn(
-      'mentionsProcessor: missing "## Journal" section; recreating canonical Journal section'
-    );
-
-    if (lines.length > 0 && lines[lines.length - 1].trim() !== "") {
-      lines.push("");
-    }
-    lines.push("## Journal");
-    lines.push("");
-    lines.push("----");
-    return this.findJournalSectionBounds(lines);
+    // Insert the new mention blocks
+    currentLines.splice(insertIndex, 0, ...newContent);
+    return currentLines.join("\n");
   }
 
   // NEW: Block-based content processing
@@ -293,7 +255,7 @@ class mentionsProcessor {
     }
 
     const mentionLines = blockContent.split("\n");
-    const normalizedCurrentLinesSet = new Set(currentLines.map((l) => l.trim()));
+    const normalizedCurrentLines = currentLines.map((l) => l.trim());
     let processedLines = [];
 
     for (const line of mentionLines) {
@@ -304,7 +266,7 @@ class mentionsProcessor {
         : this.normalizeLine(line, tagId);
 
       if (
-        this.isLineNew(normalizedLine, normalizedCurrentLinesSet) &&
+        this.isLineNew(normalizedLine, normalizedCurrentLines) &&
         !addedMentionLines.has(normalizedLine)
       ) {
         // Only log new mentions for date-based tagIds (daily notes debugging)
@@ -393,117 +355,6 @@ class mentionsProcessor {
     }
   }
 
-  /**
-   * Sort the `## Journal` section of an Activity file so entries appear in
-   * chronological order (oldest date first).
-   *
-   * Strategy:
-   *   1. Leave everything before `## Journal` untouched.
-   *   2. Split the Journal section into date-buckets delimited by `----` separators.
-   *      Each bucket starts with a `[[YYYY-MM-DD]]` anchor line.
-   *   3. Sort buckets by their date (ascending).
-   *   4. Buckets with no recognised date are moved to the top (oldest fallback).
-   *   5. Reassemble: preamble + sorted buckets + everything after Journal.
-   */
-  sortJournalSection(lines) {
-    const JOURNAL_HEADER = /^## Journal\s*$/;
-    const DATE_PATTERN = /\[\[(\d{4}-\d{2}-\d{2})\]\]/;
-    const SEPARATOR = /^----\s*$/;
-
-    // Find `## Journal` line
-    const journalIdx = lines.findIndex((l) => JOURNAL_HEADER.test(l));
-    if (journalIdx === -1) return lines; // No Journal section — nothing to sort
-
-    // Find where the Journal section ends (next `##` header at same or higher level)
-    let journalEnd = lines.length;
-    for (let i = journalIdx + 1; i < lines.length; i++) {
-      if (/^## /.test(lines[i])) {
-        journalEnd = i;
-        break;
-      }
-    }
-
-    const preamble = lines.slice(0, journalIdx + 1); // up to and including `## Journal`
-    const afterJournal = lines.slice(journalEnd);
-    const journalBody = lines.slice(journalIdx + 1, journalEnd);
-
-    // Split journalBody into buckets.  A bucket runs from one `----` to the next
-    // (exclusive).  Leading content before the first `----` goes into a special
-    // "preamble" bucket.
-    //
-    // Buckets with the same date are MERGED so that duplicate date sections
-    // (e.g. produced when mentionsProcessor ran twice for the same day) never
-    // cause non-deterministic todo-state resolution in getLatestTodoStates().
-    const bucketMap = new Map(); // dateKey → { date, lines[] }  (insertion-ordered)
-    const UNDATED_KEY = "__undated__";
-    let currentBucketLines = [];
-
-    const flushBucket = () => {
-      if (currentBucketLines.length === 0) return;
-      // Find a date anchor in this bucket
-      let date = null;
-      let dateKey = UNDATED_KEY;
-      for (const l of currentBucketLines) {
-        const m = DATE_PATTERN.exec(l);
-        if (m) {
-          const d = moment(m[1], "YYYY-MM-DD", true);
-          if (d.isValid()) {
-            date = d;
-            dateKey = m[1]; // "YYYY-MM-DD" string — stable map key
-          }
-          break;
-        }
-      }
-
-      if (bucketMap.has(dateKey)) {
-        // Merge into existing bucket: append lines (skip duplicate date-anchor line)
-        const existing = bucketMap.get(dateKey);
-        const existingText = new Set(existing.lines.map((l) => l.trim()));
-        for (const l of currentBucketLines) {
-          // Skip lines already present (dedup) and the redundant [[YYYY-MM-DD]] anchor
-          const trimmed = l.trim();
-          if (!existingText.has(trimmed)) {
-            existing.lines.push(l);
-            existingText.add(trimmed);
-          }
-        }
-      } else {
-        bucketMap.set(dateKey, { date, lines: currentBucketLines });
-      }
-      currentBucketLines = [];
-    };
-
-    for (const line of journalBody) {
-      if (SEPARATOR.test(line)) {
-        flushBucket();
-        // The separator itself is NOT stored; it will be re-inserted between buckets.
-      } else {
-        currentBucketLines.push(line);
-      }
-    }
-    flushBucket(); // flush trailing bucket (no trailing `----`)
-
-    // Convert map values to array and sort:
-    // undated buckets first (epoch 0), then ascending by date.
-    const buckets = Array.from(bucketMap.values());
-    buckets.sort((a, b) => {
-      const ta = a.date ? a.date.valueOf() : 0;
-      const tb = b.date ? b.date.valueOf() : 0;
-      return ta - tb;
-    });
-
-    // Reassemble journal body with `----` separators between buckets
-    const sortedJournalLines = [];
-    for (let i = 0; i < buckets.length; i++) {
-      sortedJournalLines.push(...buckets[i].lines);
-      if (i < buckets.length - 1) {
-        sortedJournalLines.push("----");
-      }
-    }
-
-    return [...preamble, ...sortedJournalLines, ...afterJournal];
-  }
-
   // NEW: Check if ANY block is under an activity header using Block hierarchy
   isBlockUnderActivityHeader(block, tagId) {
     // Walk up the parent chain to find if any parent header is an activity header
@@ -567,14 +418,11 @@ class mentionsProcessor {
 
   // NEW: Extract todo text without activity reference
   extractTodoText(todoContent, tagId) {
-    // Escape tagId so it is safe to embed in a RegExp (handles names with parens, dots, etc.)
-    const escapedTagId = tagId
-      ? tagId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      : "";
+    // Remove the activity reference and extract clean todo text
     let todoText = todoContent
       .replace(/^\s*-\s*\[x\]\s*/, "") // Remove completed checkbox
       .replace(/^\s*-\s*\[\s\]\s*/, "") // Remove incomplete checkbox
-      .replace(escapedTagId ? new RegExp(`\\[\\[.*?${escapedTagId}.*?\\]\\]`, "g") : /(?!x)x/, "") // Remove activity links
+      .replace(new RegExp(`\\[\\[.*?${tagId}.*?\\]\\]`, "g"), "") // Remove activity links
       .replace(/\s+/g, " ") // Normalize whitespace
       .trim();
 
@@ -636,11 +484,9 @@ class mentionsProcessor {
   }
 
   // Helper function to check if a line is new
-  isLineNew(normalizedLine, normalizedCurrentLinesSet) {
-    // Empty lines are never considered "new content" — they are formatting only.
-    // Treating them as new caused blank lines to trigger false date-section creation.
-    if (normalizedLine === "") return false;
-    return !normalizedCurrentLinesSet.has(normalizedLine);
+  isLineNew(normalizedLine, normalizedCurrentLines) {
+    if (normalizedLine === "") return true;
+    return !normalizedCurrentLines.includes(normalizedLine);
   }
 
   // Helper function to convert directives when copying from other files
@@ -657,37 +503,43 @@ class mentionsProcessor {
       return line;
     }
 
-    // If any directive returned null (already present), skip the whole line.
-    // We track this via a sentinel symbol rather than checking for the string "null",
-    // which would incorrectly drop lines containing the word "null" (e.g. null pointer).
-    const NULL_SENTINEL = "\x00DIRECTIVE_REMOVED\x00";
+    // Convert {command} to (command from filename) when copying from other files
     const directiveRegex = /\{([^}]+)\}/g;
-    let hadRemovedDirective = false;
-
-    let processedLine2 = line.replace(directiveRegex, (match, directive) => {
+    let processedLine = line.replace(directiveRegex, (match, directive) => {
       const processedDirective = `(${directive} from ${sourceFileName})`;
+      // Check if current page already has this exact directive from this file
       if (currentPageContent.includes(processedDirective)) {
+        // Only log directive skipping for date-based tagIds (daily notes debugging)
         if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
-          console.log(`Skipping directive ${match} from ${sourceFileName} - already copied from this file`);
+          console.log(
+            `Skipping directive ${match} from ${sourceFileName} - already copied from this file`
+          );
         }
-        hadRemovedDirective = true;
-        return NULL_SENTINEL;
+        return null; // Mark for removal
       }
+
+      // Process the directive immediately before converting to comment
+      // Only log directive processing for date-based tagIds (daily notes debugging)
       if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        console.log(`Processing directive from ${sourceFileName}: ${directive}`);
+        console.log(
+          `Processing directive from ${sourceFileName}: ${directive}`
+        );
       }
       this.processDirective(directive, frontmatterObj, tagId);
+
+      // Only log directive conversion for date-based tagIds (daily notes debugging)
       if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
         console.log(`Converting directive: ${match} -> ${processedDirective}`);
       }
       return processedDirective;
     });
 
-    if (hadRemovedDirective) {
+    // If any directive was marked for removal (null), skip this line
+    if (processedLine && processedLine.includes("null")) {
       return null;
     }
 
-    return processedLine2;
+    return processedLine;
   }
 
   // Helper function to process a single directive
@@ -843,6 +695,55 @@ class mentionsProcessor {
     return date.format("YYYY-MM-DD");
   }
 
+  // NEW: Check if a block comes from a completed activity (stage="done")
+  isBlockFromCompletedActivity(block) {
+    if (!block || !block.page) return false;
+
+    // Check if the block comes from an Activities file
+    if (!block.page.startsWith("Activities/")) return false;
+
+    // Skip archive folder - these are definitely completed
+    if (block.page.startsWith("Activities/Archive/")) return true;
+
+    // DEFAULT BEHAVIOR: Activities with no "stage" property are considered "in progress"
+    // Only activities with explicit stage="done" are considered completed
+    // This prevents the "Cannot read properties of undefined (reading 'stage')" error
+    // while treating missing stage as "in progress" (active)
+
+    // For now, we don't have access to frontmatter in this context
+    // So we'll assume all non-archived activities are in progress
+    // This can be enhanced later if needed to check actual frontmatter
+    return false; // Treat as "in progress" by default
+  }
+
+  // NEW: Check if a block comes from a future activity (startDate in the future)
+  isBlockFromFutureActivity(block, tagId) {
+    if (!block || !block.page) return false;
+
+    // Only check Activities files
+    if (!block.page.startsWith("Activities/")) return false;
+
+    // Extract current date from tagId if it's a date-based tagId (YYYY-MM-DD format)
+    let currentDate = null;
+    if (tagId && tagId.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      currentDate = moment(tagId, "YYYY-MM-DD");
+    } else {
+      // If tagId is not a date, use today's date
+      currentDate = moment();
+    }
+
+    // For now, we don't have direct access to activity frontmatter in this context
+    // This is a placeholder for future enhancement where we could:
+    // 1. Load the activity file and parse its frontmatter
+    // 2. Check if startDate > currentDate
+    // 3. Return true if activity should not appear yet
+
+    // TODO: Implement actual frontmatter checking
+    // For now, we'll assume all activities are current (not future)
+    // This can be enhanced later when we have access to activity frontmatter
+
+    return false; // Placeholder - treat all activities as current for now
+  }
 
   async run(currentPageContent, collectedBlocks, mentionStr, frontmatterObj) {
     return await this.processMentions(

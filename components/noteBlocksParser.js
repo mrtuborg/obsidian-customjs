@@ -125,9 +125,8 @@ class noteBlocksParser {
           currentHeaderBlock = null;
           currentHeaderLevel = 0;
         }
-        // Reset indentation stack and header stack
+        // Reset indentation stack
         indentationStack = [];
-        headerStack = [];
         emptyLineCount = 0;
 
         // Create a separator block to mark the break
@@ -481,10 +480,6 @@ class noteBlocksParser {
       }
 
       const content = await this.loadFile(app, page.file.path);
-      if (!content) {
-        console.warn(`noteBlocksParser.run: skipping ${page.file.path} (null content)`);
-        continue;
-      }
       const pageCollection = await this.parse(page.file.path, content);
 
       // Add all blocks from page to main collection

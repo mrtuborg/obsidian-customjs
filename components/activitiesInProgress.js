@@ -1,97 +1,94 @@
 class activitiesInProgress {
   /**
-   * Filter activities and collect open todo items.
-   *
-   * Performance design:
-   *  • All activity files are read in PARALLEL with Promise.all (was: sequential)
-   *  • noteBlocksParser is NOT called on activity files — raw text is sufficient
-   *    for both frontmatter and todo-state extraction
-   *  • todoSyncManager is NOT needed; todo states come from the Activity file's
-   *    own ## Journal section via getLatestTodoStates (calendar principle)
-   *
+   * OPTIMIZED: Parse all activity files once and filter activities with their todos
    * @param {Object} app - Obsidian app instance
    * @returns {Promise<Array>} Array of activity objects with parsed todos
    */
   async filterActivitiesWithTodos(app) {
-    const currentDateString = new Date().toISOString().split("T")[0];
-    const currentMoment = moment(currentDateString, "YYYY-MM-DD");
-    const dayOfWeek = currentMoment.day(); // 0=Sun … 6=Sat
+    const currentDate = new Date();
+    const currentDateString = currentDate.toISOString().split("T")[0];
 
-    // Collect active (non-archived) activity files
+    // Get all activity files using vault API
+    const activitiesFolder = "Activities";
+    const archiveFolder = activitiesFolder + "/Archive";
     const activityFiles = app.vault
       .getFiles()
       .filter(
-        (f) =>
-          f.path.startsWith("Activities") &&
-          !f.path.startsWith("Activities/Archive")
+        (file) =>
+          file.path.startsWith(activitiesFolder) &&
+          !file.path.startsWith(archiveFolder)
       );
 
     if (activityFiles.length === 0) return [];
 
-    // Read ALL files in parallel — the single biggest latency win on mobile.
-    // Promise.allSettled (not Promise.all) ensures one unreadable file does NOT
-    // crash the entire pipeline; failed reads are simply skipped below.
-    const readResults = await Promise.allSettled(
-      activityFiles.map((f) => app.vault.read(f))
+    // Parse all activity files into Blocks ONCE - OPTIMIZED APPROACH
+    const cjs = await cJS();
+    const noteBlocksParser = cjs.createnoteBlocksParserInstance();
+    const allActivityBlocks = await noteBlocksParser.run(
+      app,
+      activityFiles.map((file) => ({ file })),
+      null // No date format restriction for activity files
     );
 
+    // Group blocks by file path for efficient processing
+    const blocksByFile = {};
+    for (const block of allActivityBlocks.blocks) {
+      if (!blocksByFile[block.page]) {
+        blocksByFile[block.page] = [];
+      }
+      blocksByFile[block.page].push(block);
+    }
+
+    // Filter activities and extract todos in one pass
     const filteredActivities = [];
 
-    for (let i = 0; i < activityFiles.length; i++) {
-      const result = readResults[i];
-      if (result.status === "rejected") {
-        console.warn(`activitiesInProgress: could not read ${activityFiles[i].path}:`, result.reason);
-        continue;
+    for (const filePath of Object.keys(blocksByFile)) {
+      // Get frontmatter for this activity file
+      const frontmatter = app.metadataCache.getFileCache(
+        app.vault.getAbstractFileByPath(filePath)
+      )?.frontmatter;
+
+      if (!frontmatter || !frontmatter.stage) continue;
+
+      // Check if the activity is in progress or not done
+      if (
+        frontmatter.stage !== "done" &&
+        moment(frontmatter.startDate, "YYYY-MM-DD").isSameOrBefore(
+          currentDateString,
+          "YYYY-MM-DD"
+        )
+      ) {
+        // Extract todos from this file's blocks
+        const fileBlocks = blocksByFile[filePath];
+        const todoBlocks = fileBlocks.filter(
+          (block) => block.getAttribute("type") === "todo"
+        );
+        const doneBlocks = fileBlocks.filter(
+          (block) => block.getAttribute("type") === "done"
+        );
+
+        // Filter out completed todos
+        const completedTaskNames = new Set();
+        doneBlocks.forEach((doneBlock) => {
+          const taskName = this.extractTaskNameFromBlock(doneBlock);
+          if (taskName) {
+            completedTaskNames.add(taskName);
+          }
+        });
+
+        const incompleteTodoBlocks = todoBlocks.filter((todoBlock) => {
+          const taskName = this.extractTaskNameFromBlock(todoBlock);
+          return taskName && !completedTaskNames.has(taskName);
+        });
+
+        // Store activity with its todos
+        filteredActivities.push({
+          path: filePath,
+          stage: frontmatter.stage,
+          frontmatter: frontmatter,
+          todoBlocks: incompleteTodoBlocks,
+        });
       }
-      const file = activityFiles[i];
-      const rawContent = result.value;
-      const frontmatter = this.parseFrontmatterFromContent(rawContent);
-
-      if (!frontmatter.stage) continue;
-      if (frontmatter.stage === "done") continue;
-      if (!moment(frontmatter.startDate, "YYYY-MM-DD").isSameOrBefore(currentMoment)) continue;
-
-      // Remind filter — controls which days this activity appears
-      const remind = frontmatter.remind || "daily";
-      const visible = (() => {
-        switch (remind) {
-          case "weekdays": return dayOfWeek >= 1 && dayOfWeek <= 5;
-          case "weekends": return dayOfWeek === 0 || dayOfWeek === 6;
-          case "monday":   return dayOfWeek === 1;
-          case "friday":   return dayOfWeek === 5;
-          default:         return true; // "daily" or unknown value
-        }
-      })();
-      if (!visible) continue;
-
-      // Isolate ## Journal section — acceptance criteria ("## Done when") excluded.
-      // Use regex so `## Journal` is found whether or not it has a leading newline
-      // (guards against the edge case where it is the very first line of the file).
-      const journalMatch = rawContent.match(/(^|\n)(## Journal\b)/);
-      const journalSection = journalMatch
-        ? rawContent.substring(rawContent.indexOf(journalMatch[2], journalMatch.index))
-            // Clip at the next ## heading so sections added AFTER ## Journal are excluded
-            .replace(/\n## [^\n]+[\s\S]*$/, "")
-        : ""; // no Journal section → no todos
-
-      // Calendar-principle: task state is determined by its MOST RECENT date-bucket.
-      // A task marked [x] on May 1 but reopened [ ] on May 10 → shown as open.
-      const latestStates = this.getLatestTodoStates(journalSection);
-
-      // Build synthetic todo items for open tasks only
-      const todoBlocks = [];
-      for (const [taskText, entry] of latestStates.entries()) {
-        if (entry.state === "open") {
-          todoBlocks.push({ content: `- [ ] ${taskText}` });
-        }
-      }
-
-      filteredActivities.push({
-        path: file.path,
-        stage: frontmatter.stage,
-        frontmatter,
-        todoBlocks,
-      });
     }
 
     if (filteredActivities.length === 0) return [];
@@ -127,146 +124,103 @@ class activitiesInProgress {
     // ❌ Date Dependency: Requires valid startDate in frontmatter
     // ❌ Type Detection: Requires logic to detect document type
     //
-    // Pre-fetch metadata for all activities before sorting to avoid
-    // O(n²) cache lookups inside the sort comparator.
-    const getDocumentType = (frontmatter) => {
-      if (frontmatter?.type) return frontmatter.type;
-      if (frontmatter?.stage === "done") return "done";
-      return "project";
-    };
+    // User requirement: Document type priority first, then oldest first, inbox always at bottom
+    filteredActivities.sort((a, b) => {
+      // Get frontmatter for both activities
+      const frontmatterA = app.metadataCache.getFileCache(
+        app.vault.getAbstractFileByPath(a.path)
+      )?.frontmatter;
+      const frontmatterB = app.metadataCache.getFileCache(
+        app.vault.getAbstractFileByPath(b.path)
+      )?.frontmatter;
 
-    const typePriority = {
-      project: 1,
-      inbox: 999,
-    };
+      // Detect document type based on frontmatter type field
+      const getDocumentType = (filePath, frontmatter) => {
+        // Check type field in frontmatter first
+        if (frontmatter?.type) {
+          return frontmatter.type;
+        }
 
-    const userPriorityOrder = { high: 1, medium: 2, low: 3 };
+        // Check stage field for backward compatibility
+        if (frontmatter?.stage === "done") {
+          return "done";
+        }
 
-    const activitiesWithMeta = filteredActivities.map((activity) => {
-      const fm = activity.frontmatter;
-      const docType = getDocumentType(fm);
-      const priority = typePriority[docType] || 50;
-      const userPriority = userPriorityOrder[fm?.priority?.toString()] ?? 2;
-      const startDate = moment(fm?.startDate, "YYYY-MM-DD");
-      const filename = activity.path
-        .split("/")
-        .pop()
-        .replace(/\.[^/.]+$/, "")
-        .toLowerCase();
-      return { activity, priority, userPriority, startDate, filename };
-    });
+        // Default: everything else is project type
+        return "project";
+      };
 
-    activitiesWithMeta.sort((a, b) => {
-      // First sort by document type priority (project vs inbox)
-      if (a.priority !== b.priority) {
-        return a.priority - b.priority;
+      // Define document type priority order (lower number = higher priority = appears first)
+      const typePriority = {
+        project: 1, // Обычные проекты и активности - в начале
+        inbox: 999, // "План на сегодня.md" - всегда в конце
+        // done: не попадает в Daily Notes (отфильтровывается)
+      };
+
+      const typeA = getDocumentType(a.path, frontmatterA);
+      const typeB = getDocumentType(b.path, frontmatterB);
+      const priorityA = typePriority[typeA] || 50; // Default priority for unknown types
+      const priorityB = typePriority[typeB] || 50;
+
+      // First sort by document type priority
+      if (priorityA !== priorityB) {
+        return priorityA - priorityB; // Lower priority number comes first
       }
 
-      // Second: sort by user priority (high → medium → low)
-      if (a.userPriority !== b.userPriority) {
-        return a.userPriority - b.userPriority;
-      }
+      // Within same type, sort by startDate (oldest first)
+      const startDateA = moment(frontmatterA?.startDate, "YYYY-MM-DD");
+      const startDateB = moment(frontmatterB?.startDate, "YYYY-MM-DD");
 
-      // Within same type and priority, sort by startDate (oldest first)
-      if (a.startDate.isValid() && b.startDate.isValid()) {
-        return a.startDate.isBefore(b.startDate)
+      if (startDateA.isValid() && startDateB.isValid()) {
+        // Both dates valid - older date comes first
+        return startDateA.isBefore(startDateB)
           ? -1
-          : a.startDate.isAfter(b.startDate)
+          : startDateA.isAfter(startDateB)
           ? 1
           : 0;
-      } else if (a.startDate.isValid() && !b.startDate.isValid()) {
+      } else if (startDateA.isValid() && !startDateB.isValid()) {
+        // A has valid date, B doesn't - A comes first
         return -1;
-      } else if (!a.startDate.isValid() && b.startDate.isValid()) {
+      } else if (!startDateA.isValid() && startDateB.isValid()) {
+        // B has valid date, A doesn't - B comes first
         return 1;
       } else {
-        return a.filename.localeCompare(b.filename);
+        // Neither has valid date - fallback to alphabetical by filename
+        const filenameA = a.path
+          .split("/")
+          .pop()
+          .replace(/\.[^/.]+$/, "")
+          .toLowerCase();
+        const filenameB = b.path
+          .split("/")
+          .pop()
+          .replace(/\.[^/.]+$/, "")
+          .toLowerCase();
+        return filenameA.localeCompare(filenameB);
       }
     });
 
-    return activitiesWithMeta.map((item) => item.activity);
+    return filteredActivities;
   }
 
   /**
-   * Parses frontmatter fields directly from raw file content.
-   * This avoids the metadataCache timing race and allows newly created files
-   * (e.g. from autoActivityCreator) to be read in the same pipeline run.
-   * @param {string} content - Raw file content
-   * @returns {Object} Object with stage, startDate, remind, type, priority
+   * Helper method to extract task name from Block content
+   * @param {Block} block - Block object containing todo/done content
+   * @returns {string|null} Extracted task name or null
    */
-  parseFrontmatterFromContent(content) {
-    if (!content) return {};
-    const parseField = (name) => {
-      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const m = content.match(new RegExp(`^${escaped}:\\s*(.+)$`, "m"));
-      return m ? m[1].trim() : null;
-    };
-    return {
-      stage:     parseField("stage"),
-      startDate: parseField("startDate"),
-      remind:    parseField("remind"),
-      type:      parseField("type"),
-      priority:  parseField("priority"),
-    };
-  }
+  extractTaskNameFromBlock(block) {
+    if (!block || !block.content) return null;
 
-  /**
-   * Calendar-principle: parse the ## Journal section of an Activity file and
-   * return the MOST RECENT state for every task.
-   *
-   * Rules:
-   *  • The section is divided into date-buckets by `[[YYYY-MM-DD]]` anchor lines.
-   *  • Later dates always win: if a task is `[x]` on May 1 but `[ ]` on May 10,
-   *    it is treated as open (will appear in today's Activity list again).
-   *  • Tasks that appear outside any date section get date epoch 0 (lowest priority).
-   *  • Non-todo lines are ignored.
-   *
-   * @param {string} journalSection - The raw text from `## Journal` to end of section
-   * @returns {Map<string, {state: 'open'|'done', date: number}>} Map keyed by task text
-   */
-  getLatestTodoStates(journalSection) {
-    const DATE_ANCHOR = /\[\[(\d{4}-\d{2}-\d{2})\]\]/;
-    const TODO_OPEN   = /^- \[ \] (.+)$/;
-    const TODO_DONE   = /^- \[x\] (.+)$/i;
+    const content = block.content.trim();
 
-    const latestStates = new Map(); // taskText → { state, dateValue }
-    let currentDateValue = 0; // epoch ms; 0 = "no date / oldest"
-
-    for (const rawLine of journalSection.split("\n")) {
-      const line = rawLine.trim();
-
-      // Detect date anchor — update current date context
-      const dateMatch = DATE_ANCHOR.exec(line);
-      if (dateMatch) {
-        const d = moment(dateMatch[1], "YYYY-MM-DD", true);
-        currentDateValue = d.isValid() ? d.valueOf() : 0;
-        continue;
-      }
-
-      // Detect open task
-      const openMatch = TODO_OPEN.exec(line);
-      if (openMatch) {
-        const taskText = openMatch[1].trim();
-        const existing = latestStates.get(taskText);
-        // Strict `>` (not `>=`): first occurrence within the same date-bucket wins.
-        // This is deterministic regardless of how many times mentionsProcessor ran.
-        if (!existing || currentDateValue > existing.dateValue) {
-          latestStates.set(taskText, { state: "open", dateValue: currentDateValue });
-        }
-        continue;
-      }
-
-      // Detect done task
-      const doneMatch = TODO_DONE.exec(line);
-      if (doneMatch) {
-        const taskText = doneMatch[1].trim();
-        const existing = latestStates.get(taskText);
-        if (!existing || currentDateValue > existing.dateValue) {
-          latestStates.set(taskText, { state: "done", dateValue: currentDateValue });
-        }
-      }
+    // Handle both todo and done patterns
+    if (content.startsWith("- [ ]")) {
+      return content.substring(6).trim();
+    } else if (content.startsWith("- [x]")) {
+      return content.substring(6).trim();
     }
 
-    return latestStates;
+    return null;
   }
 
   /**
